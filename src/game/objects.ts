@@ -4,6 +4,7 @@ function material(color: number, emissive = 0) { return new THREE.MeshStandardMa
 function mesh(group: THREE.Group, geometry: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) { const object = new THREE.Mesh(geometry, mat); object.position.set(x, y, z); group.add(object); return object; }
 export function createCar(color: number, number: string) {
   const group = new THREE.Group();
+  group.scale.setScalar(1.2);
   const paint = new THREE.MeshStandardMaterial({ color, metalness: 0.55, roughness: 0.22 });
   const darkPaint = new THREE.MeshStandardMaterial({ color: new THREE.Color(color).multiplyScalar(0.46), metalness: 0.45, roughness: 0.3 });
   const rubber = new THREE.MeshStandardMaterial({ color: 0x11151e, metalness: 0.25, roughness: 0.42 });

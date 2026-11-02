@@ -18,13 +18,13 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
   const fixedBox = (x: number, y: number, z: number, hx: number, hy: number, hz: number) => {
     world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z).setRestitution(0.5));
   };
-  fixedBox(0, -0.2, 0, 38, 0.25, 19);
-  for (const z of [-16.4, 16.4]) fixedBox(0, 0.7, z, 34, 0.7, 0.1);
+  fixedBox(0, -0.2, 0, 44, 0.25, 22);
+  for (const z of [-18.4, 18.4]) fixedBox(0, 0.7, z, 39.5, 0.7, 0.1);
   // Leave the middle of each end open for the goals.
-  for (const x of [-33.84, 33.84]) {
-    for (const z of [-11.2, 11.2]) fixedBox(x, 1.75, z, 0.1, 1.75, 5.2);
-    fixedBox(x, 4, 0, 0.1, 0.5, 6);
-    fixedBox(x * 1.06, 1.75, 0, 0.1, 1.75, 6);
+  for (const x of [-39.48, 39.48]) {
+    for (const z of [-12.6, 12.6]) fixedBox(x, 1.75, z, 0.1, 1.75, 5.85);
+    fixedBox(x, 4, 0, 0.1, 0.5, 6.75);
+    fixedBox(x * 1.06, 1.75, 0, 0.1, 1.75, 6.75);
   }
 
   const ballBody = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(0, 0.96, 0).setCcdEnabled(true).setLinearDamping(0.2));
@@ -126,14 +126,14 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           const playerPosition = carBodies[0].translation();
           const playerBlocksGoal = index !== 2 && playerPosition.x < target.x - 2 && Math.abs(playerPosition.z - target.z) < 4;
           const aimZ = playerBlocksGoal ? (playerPosition.z >= 0 ? -4.8 : 4.8) : 0;
-          const goalX = index === 2 ? 34 : -34;
+          const goalX = index === 2 ? 40 : -40;
           const pushZ = THREE.MathUtils.clamp((aimZ - target.z) / Math.min(14, Math.max(8, Math.abs(goalX - target.x))), -0.8, 0.8);
           const pushLength = Math.hypot(pushX, pushZ);
           const directionX = pushX / pushLength;
           const directionZ = pushZ / pushLength;
           const offset = index === 1 || index === 2 ? 0 : (index - 3) * 2.5 - 2.5;
-          const approachX = THREE.MathUtils.clamp(target.x - directionX * 3 - directionZ * offset, -31, 31);
-          const approachZ = THREE.MathUtils.clamp(target.z - directionZ * 3 + directionX * offset, -14, 14);
+          const approachX = THREE.MathUtils.clamp(target.x - directionX * 3 - directionZ * offset, -36, 36);
+          const approachZ = THREE.MathUtils.clamp(target.z - directionZ * 3 + directionX * offset, -16, 16);
           const approachDistance = Math.hypot(approachX - position.x, approachZ - position.z);
           const ballDistance = Math.hypot(target.x - position.x, target.z - position.z);
           if (approachDistance < 1.3) state.attacking = true;
@@ -163,7 +163,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
         const before = ballBody.linvel();
         world.step(events);
         const ballPosition = ballBody.translation();
-        if (Math.abs(ballPosition.x) > 33.95 && Math.abs(ballPosition.z) < 6 && ballPosition.y < 3.5) {
+        if (Math.abs(ballPosition.x) > 39.55 && Math.abs(ballPosition.z) < 6.75 && ballPosition.y < 3.5) {
           const redGoal = ballPosition.x > 0;
           if (redGoal) { state.red++; if (round >= 2) { state.redCars = 2; state.message = 'GOL VERMELHO! Reforço liberado.'; } else state.message = 'GOL VERMELHO! Reforço disponível a partir da rodada 2.'; }
           else { state.blue++; state.redCars = 1; state.message = 'GOL AZUL! Você perdeu o reforço.'; }
