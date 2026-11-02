@@ -9,7 +9,7 @@ let initialization: Promise<void> | undefined;
 export type DriveInput = { forward: boolean; reverse: boolean; left: boolean; right: boolean };
 
 export type MatchState = { red: number; blue: number; redCars: number; blueCars: number; message: string; finished: boolean };
-export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], input: DriveInput, onState: (state: MatchState) => void, difficulty: Difficulty, round: number) {
+export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], input: DriveInput, onState: (state: MatchState) => void, difficulty: Difficulty, round: number, isPlaying: () => boolean) {
   initialization ??= RAPIER.init();
   await initialization;
   const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
@@ -17,13 +17,13 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
   const fixedBox = (x: number, y: number, z: number, hx: number, hy: number, hz: number) => {
     world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z).setRestitution(0.5));
   };
-  fixedBox(0, -0.2, 0, 28, 0.25, 14);
-  for (const z of [-12.3, 12.3]) fixedBox(0, 0.7, z, 25.5, 0.7, 0.1);
+  fixedBox(0, -0.2, 0, 33, 0.25, 17);
+  for (const z of [-14.76, 14.76]) fixedBox(0, 0.7, z, 29.8, 0.7, 0.1);
   // Leave the middle of each end open for the goals.
-  for (const x of [-25.38, 25.38]) {
-    for (const z of [-8.4, 8.4]) fixedBox(x, 1.75, z, 0.1, 1.75, 3.9);
-    fixedBox(x, 4, 0, 0.1, 0.5, 4.5);
-    fixedBox(x * 1.06, 1.75, 0, 0.1, 1.75, 4.5);
+  for (const x of [-29.61, 29.61]) {
+    for (const z of [-10.08, 10.08]) fixedBox(x, 1.75, z, 0.1, 1.75, 4.68);
+    fixedBox(x, 4, 0, 0.1, 0.5, 5.4);
+    fixedBox(x * 1.06, 1.75, 0, 0.1, 1.75, 5.4);
   }
 
   const ballBody = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(0, 0.96, 0).setCcdEnabled(true).setLinearDamping(0.2));
@@ -48,7 +48,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
     carBodies.forEach((body, index) => {
       aiHeadings[index] = index % 2 === 0 ? -Math.PI / 2 : Math.PI / 2;
       body.setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), aiHeadings[index]), true);
-      body.setTranslation({ x: index % 2 === 0 ? -11 : 11, y: CAR_HEIGHT, z: index < 2 ? 0 : (index === 2 ? 6 : -6) }, true);
+      body.setTranslation({ x: index % 2 === 0 ? -14 : 14, y: CAR_HEIGHT, z: index < 2 ? 0 : (index === 2 ? 7 : -7) }, true);
       body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     });
@@ -62,7 +62,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
   const keys = new Set<string>();
   const accepted = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
   const keydown = (event: KeyboardEvent) => {
-    if (!accepted.has(event.code) || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (!isPlaying() || !accepted.has(event.code) || event.altKey || event.ctrlKey || event.metaKey) return;
     event.preventDefault();
     keys.add(event.code);
   };
@@ -101,7 +101,16 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
         heading += turn * 3.2 * STEP * (forward < 0 ? -1 : 1);
         const car = carBodies[0];
         if (turn) car.setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), heading), true);
-        if (forward) car.applyImpulse({ x: -Math.sin(heading) * forward * 1.4, y: 0, z: -Math.cos(heading) * forward * 1.4 }, true);
+        const directionX = -Math.sin(heading);
+        const directionZ = -Math.cos(heading);
+        const velocity = car.linvel();
+        // Reduce sideways sliding while retaining collision momentum and reverse control.
+        const lateralSpeed = velocity.x * directionZ - velocity.z * directionX;
+        car.applyImpulse({ x: -directionZ * lateralSpeed * 0.7, y: 0, z: directionX * lateralSpeed * 0.7 }, true);
+        const speed = velocity.x * directionX + velocity.z * directionZ;
+        if (forward && (Math.abs(speed) < 15 || Math.sign(speed) !== forward)) {
+          car.applyImpulse({ x: directionX * forward * 1.65, y: 0, z: directionZ * forward * 1.65 }, true);
+        }
         // Approach from behind the ball, then push it away from the nearest wall.
         const target = ballBody.translation();
         for (let index = 1; index < carBodies.length; index++) {
@@ -110,13 +119,13 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           const state = opponents[index];
           const position = opponent.translation();
           const pushX = index === 2 ? 1 : -1;
-          const pushZ = Math.abs(target.z) > 10 ? -Math.sign(target.z) * 0.8 : 0;
+          const pushZ = Math.abs(target.z) > 12 ? -Math.sign(target.z) * 0.8 : 0;
           const pushLength = Math.hypot(pushX, pushZ);
           const directionX = pushX / pushLength;
           const directionZ = pushZ / pushLength;
           const offset = (index - 2) * 1.4;
-          const approachX = THREE.MathUtils.clamp(target.x - directionX * 3 - directionZ * offset, -23, 23);
-          const approachZ = THREE.MathUtils.clamp(target.z - directionZ * 3 + directionX * offset, -10, 10);
+          const approachX = THREE.MathUtils.clamp(target.x - directionX * 3 - directionZ * offset, -27, 27);
+          const approachZ = THREE.MathUtils.clamp(target.z - directionZ * 3 + directionX * offset, -12, 12);
           const approachDistance = Math.hypot(approachX - position.x, approachZ - position.z);
           const ballDistance = Math.hypot(target.x - position.x, target.z - position.z);
           if (approachDistance < 1.3) state.attacking = true;
@@ -143,21 +152,21 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           }
         }
         const before = ballBody.linvel();
-        const nearWall = Math.abs(target.x) > 23 || Math.abs(target.z) > 10;
+        const nearWall = Math.abs(target.x) > 27 || Math.abs(target.z) > 12;
         const contested = carBodies.some((body) => {
           const position = body.translation();
           return Math.hypot(position.x - target.x, position.z - target.z) < 3.5;
         });
         ballBlockedTime = nearWall && contested && Math.hypot(before.x, before.z) < 0.6 ? ballBlockedTime + STEP : 0;
         if (ballBlockedTime > 2) {
-          const inwardX = Math.abs(target.x) > 23 ? -Math.sign(target.x) : 0;
-          const inwardZ = Math.abs(target.z) > 10 ? -Math.sign(target.z) : 0;
+          const inwardX = Math.abs(target.x) > 27 ? -Math.sign(target.x) : 0;
+          const inwardZ = Math.abs(target.z) > 12 ? -Math.sign(target.z) : 0;
           ballBody.applyImpulse({ x: inwardX * 2, y: 0, z: inwardZ * 2 }, true);
           ballBlockedTime = 0;
         }
         world.step(events);
         const ballPosition = ballBody.translation();
-        if (Math.abs(ballPosition.x) > 25.44 && Math.abs(ballPosition.z) < 4.5 && ballPosition.y < 3.5) {
+        if (Math.abs(ballPosition.x) > 29.7 && Math.abs(ballPosition.z) < 5.4 && ballPosition.y < 3.5) {
           const redGoal = ballPosition.x > 0;
           if (redGoal) { state.red++; state.redCars = 2; state.message = 'GOL VERMELHO! Reforço liberado.'; }
           else { state.blue++; state.redCars = 1; state.message = 'GOL AZUL! Você perdeu o reforço.'; }

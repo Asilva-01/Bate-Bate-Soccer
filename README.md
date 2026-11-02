@@ -10,7 +10,7 @@ Escolha entre fácil, médio e difícil no menu e faça três gols na trave azul
 - **A/D** ou **setas para esquerda/direita**: virar.
 - Em telas sensíveis ao toque, use os botões na tela.
 - Alterne entre as câmeras **Arena**, **Carrinho** e **Alto** nos controles abaixo do campo.
-- Clique em **Ligar som** para ativar música eletrônica sintetizada e efeitos de colisão e gol. O áudio começa após a interação do jogador.
+- Clique em **Ligar som** para ativar trilha sintetizada inspirada em rock e efeitos de colisão e gol. O áudio começa após a interação do jogador.
 
 ## Executar localmente
 
