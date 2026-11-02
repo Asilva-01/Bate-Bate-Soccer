@@ -16,12 +16,27 @@ export async function createScene(container: HTMLElement, input: DriveInput, con
   const arena = createArena(); arena.scale.set(GAME_CONFIG.arena.scaleX, 1, GAME_CONFIG.arena.scaleZ); scene.add(arena); const ball = createBall(); scene.add(ball);
   const cars = [[0xf43c4b, '01', -18, 0, -Math.PI / 2], [0x148fff, '02', 18, 0, Math.PI / 2], [0xff8b5b, '03', -18, 9, -Math.PI / 2], [0x45b6e5, '04', 18, -9, Math.PI / 2], [0x1978c7, '05', 18, 9, Math.PI / 2], [0x7abde5, '06', 24, 0, Math.PI / 2]] as const;
   const carModels = cars.map(([color, number, x, z, rotation]) => { const car = createCar(color, number); car.position.set(x, 0, z); car.rotation.y = rotation; scene.add(car); return car; });
-  let previousScore = 0;
+  let previousRed = 0;
+  let previousBlue = 0;
+  let goalCelebrationAge = 1;
+  const celebrationMaterial = new THREE.MeshBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+  const goalCelebration = new THREE.Mesh(new THREE.TorusGeometry(1, 0.07, 8, 48), celebrationMaterial);
+  goalCelebration.rotation.y = Math.PI / 2;
+  goalCelebration.visible = false;
+  scene.add(goalCelebration);
   const physics = await createPhysics(ball, carModels, input, (state) => {
-    if (state.red + state.blue > previousScore) controls.sound('goal');
-    previousScore = state.red + state.blue; onState(state);
+    if (state.red > previousRed || state.blue > previousBlue) {
+      controls.sound('goal');
+      const scoringSide = state.red > previousRed ? 1 : -1;
+      goalCelebration.position.set(scoringSide * (GAME_CONFIG.arena.goalLineX + 0.15), GAME_CONFIG.arena.goalHeight / 2, 0);
+      goalCelebrationAge = 0;
+      goalCelebration.visible = true;
+    }
+    previousRed = state.red;
+    previousBlue = state.blue;
+    onState(state);
   }, difficulty, round, () => controls.running);
-  const restart = () => { previousScore = 0; physics.restart(); };
+  const restart = () => { previousRed = 0; previousBlue = 0; goalCelebrationAge = 1; goalCelebration.visible = false; physics.restart(); };
   // Reuse a small pool of rings to keep collision feedback inexpensive on mobile.
   const impacts = Array.from({ length: 6 }, () => {
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.75, 0.9, 32), new THREE.MeshBasicMaterial({ color: 0xffd15c, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
@@ -53,6 +68,13 @@ export async function createScene(container: HTMLElement, input: DriveInput, con
     const delta = Math.min((now - previous) / 1000, 0.1);
     previous = now;
     if (controls.running) physics.update(delta, hit);
+    if (goalCelebrationAge < 1) {
+      goalCelebrationAge = Math.min(1, goalCelebrationAge + delta * 1.4);
+      const progress = goalCelebrationAge;
+      goalCelebration.scale.set(0.5 + progress * 1.4, 0.35 + progress, 1);
+      celebrationMaterial.opacity = (1 - progress) * 0.9;
+      if (goalCelebrationAge >= 1) goalCelebration.visible = false;
+    }
     // Keep a wide framing while gently following the play rather than the car.
     const blend = 1 - Math.exp(-2 * delta);
     cameraTarget.x += (THREE.MathUtils.clamp(ball.position.x * 0.08, -0.8, 0.8) - cameraTarget.x) * blend;

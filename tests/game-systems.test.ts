@@ -5,6 +5,7 @@ import { GAME_CONFIG } from '../src/game/game-config.ts';
 import { createPhysics } from '../src/game/physics.ts';
 import { awardGoal, getScoringSide, opponentCars, opponentSpeed, selectAttacker } from '../src/game/match-rules.ts';
 import { createStuckMonitor } from '../src/game/stuck-monitor.ts';
+import { getLateralRecoveryImpulse } from '../src/game/vehicle-dynamics.ts';
 
 const handlers = new Map<string, (event: unknown) => void>();
 let physics: Awaited<ReturnType<typeof createPhysics>> | undefined;
@@ -54,6 +55,13 @@ test('detector recupera quique preso e preserva bola em movimento', () => {
   assert.equal(recovered, true);
   monitor.reset();
   for (let i = 0; i < 600; i++) assert.equal(monitor.update(36, 16 + i / 60, 1 / 60), false);
+});
+
+test('recuperacao apos impacto reduz derrapagem sem frear o movimento para frente', () => {
+  const lateral = getLateralRecoveryImpulse(4, 0, 0, GAME_CONFIG.vehicles.mass, GAME_CONFIG.vehicles.impactRecoveryGrip);
+  const forward = getLateralRecoveryImpulse(0, 4, 0, GAME_CONFIG.vehicles.mass, GAME_CONFIG.vehicles.impactRecoveryGrip);
+  assert.ok(4 * lateral.x < 0, 'impulse must oppose sideways velocity');
+  assert.equal(Math.hypot(forward.x, forward.z), 0, 'impulse must preserve velocity along the heading');
 });
 
 test('setas movem o carrinho, IA aproxima e reiniciar zera o placar', async () => {

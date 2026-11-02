@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { awardGoal, getScoringSide, opponentCars, opponentSpeed, selectAttacker, type Difficulty } from './match-rules';
 import { createStuckMonitor } from './stuck-monitor';
 import { GAME_CONFIG } from './game-config';
+import { getLateralRecoveryImpulse } from './vehicle-dynamics';
 
 const { fixedStep: STEP, maxFrameDelta } = GAME_CONFIG.simulation;
 const { arena, vehicles, ball: ballConfig, goals, ai } = GAME_CONFIG;
@@ -33,20 +34,22 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
   const ballBody = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(0, ballConfig.radius + 0.06, 0).setCcdEnabled(true).setLinearDamping(ballConfig.linearDamping));
   const ballCollider = world.createCollider(RAPIER.ColliderDesc.ball(ballConfig.radius).setMass(ballConfig.mass).setRestitution(ballConfig.restitution).setFriction(ballConfig.friction).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), ballBody);
   const events = new RAPIER.EventQueue(true);
-  const carColliderHandles = new Set<number>();
-  const carBodies = cars.map((car) => {
+  const carColliderIndices = new Map<number, number>();
+  const carBodies = cars.map((car, index) => {
     const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(car.position.x, CAR_HEIGHT, car.position.z).setCcdEnabled(true).setLinearDamping(vehicles.rollingDrag).setAngularDamping(3));
     body.setEnabledRotations(false, true, false, true);
-    const collider = world.createCollider(RAPIER.ColliderDesc.cylinder(vehicles.halfHeight, vehicles.radius).setMass(vehicles.mass).setFriction(0.8).setRestitution(0.38), body);
-    carColliderHandles.add(collider.handle);
+    const collider = world.createCollider(RAPIER.ColliderDesc.cylinder(vehicles.halfHeight, vehicles.radius).setMass(vehicles.mass).setFriction(0.8).setRestitution(0.38).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), body);
+    carColliderIndices.set(collider.handle, index);
     return body;
   });
+  const impactRecovery = new Float32Array(cars.length);
   let state: MatchState = { red: 0, blue: 0, redCars: 1, blueCars: opponentCars(round), message: 'Faça 3 gols para vencer', finished: false };
   const enabled = (index: number) => index === 0 || index === 1 || (index === 2 ? state.redCars > 1 : index - 2 < state.blueCars);
   const spawn = [{ x: -18, z: 0 }, { x: 18, z: 0 }, { x: -18, z: 9 }, { x: 18, z: -9 }, { x: 18, z: 9 }, { x: 24, z: 0 }];
   const setTeams = () => carBodies.forEach((body, index) => { const active = enabled(index); body.setEnabled(active); cars[index].visible = active; });
   const resetPositions = () => {
     stuck.reset();
+    impactRecovery.fill(0);
     opponents.forEach((opponent) => { opponent.blockedTime = 0; opponent.recoveryTime = 0; opponent.attacking = false; });
     ballBody.setTranslation({ x: 0, y: 0.96, z: 0 }, true);
     ballBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
@@ -188,12 +191,42 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           if (aiPlanarSpeed > aiCap && aiPlanarSpeed > 0) opponent.setLinvel({ x: aiSpeed.x * aiCap / aiPlanarSpeed, y: aiSpeed.y, z: aiSpeed.z * aiCap / aiPlanarSpeed }, true);
         }
         const before = ballBody.linvel();
+        const carVelocitiesBefore = carBodies.map((body) => body.linvel());
         world.step(events);
+        events.drainCollisionEvents((first, second, started) => {
+          if (!started) return;
+          const firstIndex = carColliderIndices.get(first);
+          const secondIndex = carColliderIndices.get(second);
+          for (const index of [firstIndex, secondIndex]) {
+            if (index === undefined) continue;
+            const after = carBodies[index].linvel();
+            const beforeCar = carVelocitiesBefore[index];
+            const impact = Math.hypot(after.x - beforeCar.x, after.y - beforeCar.y, after.z - beforeCar.z);
+            if (impact >= vehicles.impactRecoveryThreshold) impactRecovery[index] = vehicles.impactRecoverySeconds;
+          }
+          const hitCar = first === ballCollider.handle ? second : second === ballCollider.handle ? first : undefined;
+          if (hitCar !== undefined && carColliderIndices.has(hitCar)) {
+            const velocityAfterHit = ballBody.linvel();
+            const strength = Math.hypot(velocityAfterHit.x - before.x, velocityAfterHit.z - before.z);
+            if (strength > 0.8) {
+              const position = ballBody.translation();
+              onBallHit(new THREE.Vector3(position.x, position.y, position.z), strength);
+            }
+          }
+        });
         for (const body of carBodies) {
           const velocity = body.linvel();
           const speed = Math.hypot(velocity.x, velocity.z);
           if (speed > vehicles.maxSpeed && speed > 0) body.setLinvel({ x: velocity.x * vehicles.maxSpeed / speed, y: velocity.y, z: velocity.z * vehicles.maxSpeed / speed }, true);
         }
+        carBodies.forEach((body, index) => {
+          if (impactRecovery[index] <= 0) return;
+          impactRecovery[index] = Math.max(0, impactRecovery[index] - STEP);
+          const velocity = body.linvel();
+          const angle = index === 0 ? heading : aiHeadings[index];
+          const impulse = getLateralRecoveryImpulse(velocity.x, velocity.z, angle, vehicles.mass, vehicles.impactRecoveryGrip);
+          body.applyImpulse({ x: impulse.x, y: 0, z: impulse.z }, true);
+        });
         const ballPosition = ballBody.translation();
         const scoringSide = getScoringSide(ballPosition);
         if (scoringSide) {
@@ -207,21 +240,9 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           resetPositions();
           state.message = 'Bola presa: jogada reiniciada no centro.';
           onState({ ...state });
-          events.drainCollisionEvents(() => {});
           accumulator = 0;
           break;
         }
-        events.drainCollisionEvents((first, second, started) => {
-          if (!started) return;
-          const other = first === ballCollider.handle ? second : second === ballCollider.handle ? first : -1;
-          if (!carColliderHandles.has(other)) return;
-          const velocity = ballBody.linvel();
-          const strength = Math.hypot(velocity.x - before.x, velocity.z - before.z);
-          if (strength > 0.8) {
-            const position = ballBody.translation();
-            onBallHit(new THREE.Vector3(position.x, position.y, position.z), strength);
-          }
-        });
         accumulator -= STEP;
       }
       sync();
