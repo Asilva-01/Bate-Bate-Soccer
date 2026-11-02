@@ -1,6 +1,9 @@
 ﻿import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { createScene } from './game/scene';
+import { createScene, type GameControls } from './game/scene';
+import { createAudio } from './game/audio';
+import type { MatchState } from './game/physics';
 import type { DriveInput } from './game/physics';
+import type { Difficulty } from './game/match-rules';
 
 const directions = [
   { key: 'left', label: 'Virar à esquerda', symbol: '◀' },
@@ -14,13 +17,30 @@ export default function App() {
   const input = useRef<DriveInput>({ forward: false, reverse: false, left: false, right: false });
   const pointers = useRef(new Map<number, keyof DriveInput>());
   const [error, setError] = useState(false);
+  const [match, setMatch] = useState<MatchState>({ red: 0, blue: 0, redCars: 1, blueCars: 1, message: 'Faça 3 gols para vencer', finished: false });
+  const [difficulty, setDifficulty] = useState<Difficulty>('easy');
+  const [round, setRound] = useState(1);
+  const [session, setSession] = useState(0);
+  const [menu, setMenu] = useState(true);
+  const [camera, setCamera] = useState<GameControls['camera']>('arena');
+  const [sound, setSound] = useState(false);
+  const audio = useRef<ReturnType<typeof createAudio> | null>(null);
+  const controls = useRef<GameControls>({ camera: 'arena', running: false, restart: () => {}, sound: (kind) => audio.current?.sound(kind) });
+
+  useEffect(() => {
+    const player = createAudio();
+    audio.current = player;
+    return () => { player.dispose(); if (audio.current === player) audio.current = null; };
+  }, []);
 
   useEffect(() => {
     if (!container.current) return;
     let active = true;
     let dispose: (() => void) | undefined;
-    createScene(container.current, input.current).then((cleanup) => {
-      if (active) dispose = cleanup;
+    setError(false);
+    controls.current.restart = () => {};
+    createScene(container.current, input.current, controls.current, (state) => { if (active) setMatch(state); }, difficulty, round).then(({ dispose: cleanup, restart }) => {
+      if (active) { dispose = cleanup; controls.current.restart = restart; }
       else cleanup();
     }).catch((cause: unknown) => {
       console.error(cause);
@@ -32,7 +52,7 @@ export default function App() {
     };
     window.addEventListener('blur', clear);
     return () => { active = false; clear(); window.removeEventListener('blur', clear); dispose?.(); };
-  }, []);
+  }, [difficulty, round, session]);
 
   const press = (event: PointerEvent<HTMLButtonElement>, direction: keyof DriveInput) => {
     event.preventDefault();
@@ -46,18 +66,26 @@ export default function App() {
     if (direction) input.current[direction] = [...pointers.current.values()].includes(direction);
   };
 
+  const start = () => { controls.current.running = true; setRound(1); setSession((current) => current + 1); setMenu(false); };
+  const openMenu = () => { controls.current.running = false; setMenu(true); };
+  const nextRound = () => { controls.current.running = true; setMatch((current) => ({ ...current, finished: false })); setRound((current) => current + 1); };
+  const changeCamera = (value: GameControls['camera']) => { controls.current.camera = value; setCamera(value); };
   return <main className="app">
-    <header className="topbar"><a className="brand" href="#inicio"><span className="brand-icon" aria-hidden="true">★</span><span>BATE-BATE <strong>SOCCER</strong></span></a><span className="top-tag"><span className="live-dot" /> PROTÓTIPO · FASE 02</span></header>
+    <header className="topbar"><a className="brand" href="#inicio"><span className="brand-icon" aria-hidden="true">★</span><span>BATE-BATE <strong>SOCCER</strong></span></a><span className="top-tag">FUTEBOL DE CARRINHO · PARTIDA RÁPIDA</span></header>
     <section className="game" id="inicio" aria-labelledby="title">
-      <div className="game-heading"><div><p className="eyebrow">ENTRE NA ARENA <span> / 02</span></p><h1 id="title">BATE DIFERENTE<span>.</span></h1></div><p className="game-hint"><strong>CARRINHO VERMELHO</strong><br />WASD ou setas para dirigir</p></div>
-      <div className="scene-frame"><div ref={container} className="scene" role="img" aria-label="Arena 3D com quatro carrinhos e uma bola. Controle o carrinho vermelho com WASD, setas ou botões de toque." />{error && <p className="scene-error" role="alert">Não foi possível iniciar a cena 3D. Verifique se o WebGL está habilitado no navegador.</p>}
-        <div className="scene-overlay"><span><i className="live-dot" /> ARENA NEON</span><span>VISÃO AMPLA DA ARENA</span></div>
-        <div className="touch-controls" aria-label="Controles do carrinho">
+      <div className="game-heading"><div><p className="eyebrow">ENTRE EM CAMPO</p><h1 id="title">É HORA DO <span>JOGO.</span></h1></div><p className="game-hint">WASD ou setas para dirigir<br /><strong>Primeiro a marcar 3 vence</strong></p></div>
+      <div className="match-bar" aria-label="Placar"><div className="team red">VOCÊ <small>{match.redCars} {match.redCars === 1 ? 'CARRINHO' : 'CARRINHOS'}</small></div><div className="score" aria-live="polite">{match.red} <span>:</span> {match.blue}</div><div className="team blue">AZUL <small>{match.blueCars} {match.blueCars === 1 ? 'CARRINHO' : 'CARRINHOS'}</small></div></div>
+      <div className="scene-frame"><div ref={container} className="scene" role="img" aria-label="Campo de futebol 3D. Dirija o carrinho vermelho e faça gols na trave azul." />{error && <p className="scene-error" role="alert">Não foi possível iniciar a cena 3D. Verifique se o WebGL está habilitado no navegador.</p>}
+        <div className="scene-overlay"><span>● {match.message}</span><span>RODADA {round} · ATAQUE PARA A DIREITA →</span></div>
+        {menu && <div className="start-menu" role="region" aria-label="Escolha a dificuldade"><div className="menu-card"><p className="menu-kicker">BATE-BATE SOCCER</p><h2>ESCOLHA SEU DESAFIO</h2><p>Comece em 1 contra 1. A cada vitória, o próximo adversário fica mais forte.</p><div className="difficulty" role="group" aria-label="Dificuldade">{([['easy', 'Fácil', 'Para começar'], ['medium', 'Médio', 'Jogo equilibrado'], ['hard', 'Difícil', 'Ritmo intenso']] as const).map(([value, label, description]) => <button type="button" key={value} aria-pressed={difficulty === value} onClick={() => { setRound(1); setDifficulty(value); }}><strong>{label}</strong><small>{description}</small></button>)}</div><button className="play-button" type="button" onClick={start}>ENTRAR EM CAMPO →</button></div></div>}
+        {!menu && match.finished && <div className="finish"><strong>{match.message}</strong>{match.red >= 3 ? <button type="button" onClick={nextRound}>PRÓXIMA RODADA →</button> : <button type="button" onClick={() => controls.current.restart()}>TENTAR NOVAMENTE</button>}<button type="button" onClick={openMenu}>VOLTAR AO MENU</button></div>}
+        {!menu && !match.finished && <div className="touch-controls" aria-label="Controles do carrinho">
           <div className="control-group steering">{directions.slice(0, 2).map(({ key, label, symbol }) => <button key={key} type="button" aria-label={label} onPointerDown={(event) => press(event, key)} onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release}>{symbol}</button>)}</div>
           <div className="control-group pedals">{directions.slice(2).map(({ key, label, symbol }) => <button key={key} type="button" aria-label={label} onPointerDown={(event) => press(event, key)} onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release}><span>{symbol}</span><small>{key === 'forward' ? 'ACELERAR' : 'RÉ'}</small></button>)}</div>
-        </div>
+        </div>}
       </div>
-      <div className="game-footer"><p><span className="red-dot" /> VOCÊ CONTROLA O VERMELHO</p><p>FÍSICA E COLISÕES <span>·</span> GOLS E PLACAR NA PRÓXIMA FASE</p></div>
+      <div className="game-tools"><div className="camera-controls" aria-label="Câmera"><span>VISÃO</span>{([['arena', 'Arena'], ['follow', 'Carrinho'], ['top', 'Alto']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={camera === value} onClick={() => changeCamera(value)}>{label}</button>)}</div><button className="sound-toggle" type="button" aria-pressed={sound} onClick={() => { void audio.current?.toggle().then(setSound); }}>{sound ? '♫ SOM LIGADO' : '♫ LIGAR SOM'}</button></div>
+      <p className="rules">MARCOU? GANHA UM ALIADO. SOFREU GOL? PERDE O ALIADO. APÓS CADA VITÓRIA, O AZUL FICA MAIS FORTE; NA RODADA 2 ENTRA UM REFORÇO.</p>
     </section>
   </main>;
 }

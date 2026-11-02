@@ -1,18 +1,26 @@
 import * as THREE from 'three';
 import { createArena } from './arena';
 import { createBall, createCar } from './objects';
-import { createPhysics, type DriveInput } from './physics';
+import { createPhysics, type DriveInput, type MatchState } from './physics';
+import type { Difficulty } from './match-rules';
 
-export async function createScene(container: HTMLElement, input: DriveInput) {
+export type GameControls = { camera: 'arena' | 'follow' | 'top'; running: boolean; restart: () => void; sound: (kind: 'hit' | 'goal') => void };
+
+export async function createScene(container: HTMLElement, input: DriveInput, controls: GameControls, onState: (state: MatchState) => void, difficulty: Difficulty, round: number) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x101b2b);
-  const camera = new THREE.OrthographicCamera(-20, 20, 12, -12, 0.1, 100); camera.position.set(0, 45, 22); camera.lookAt(0, 0, 0);
+  const camera = new THREE.OrthographicCamera(-20, 20, 12, -12, 0.1, 150); camera.position.set(0, 45, 22); camera.lookAt(0, 0, 0);
   const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; container.appendChild(renderer.domElement);
   scene.add(new THREE.HemisphereLight(0xa8dfff, 0x1d1420, 2)); const main = new THREE.DirectionalLight(0xffffff, 2.3); main.position.set(4, 18, 8); scene.add(main);
   const blue = new THREE.PointLight(0x00bfff, 100, 24); blue.position.set(-12, 5, -5); scene.add(blue); const red = new THREE.PointLight(0xff2856, 100, 24); red.position.set(12, 5, 5); scene.add(red);
-  scene.add(createArena()); const ball = createBall(); scene.add(ball);
-  const cars = [[0xf43c4b, '01', -6, -4, -0.8], [0x148fff, '02', 6, 4, 2.4], [0x26d276, '03', 6, -4, 2.4], [0xffca28, '04', -6, 4, -0.8]] as const;
+  const arena = createArena(); arena.scale.set(1.8, 1, 1.5); scene.add(arena); const ball = createBall(); scene.add(ball);
+  const cars = [[0xf43c4b, '01', -11, 0, -Math.PI / 2], [0x148fff, '02', 11, 0, Math.PI / 2], [0xff8b5b, '03', -11, 6, -Math.PI / 2], [0x45b6e5, '04', 11, -6, Math.PI / 2]] as const;
   const carModels = cars.map(([color, number, x, z, rotation]) => { const car = createCar(color, number); car.position.set(x, 0, z); car.rotation.y = rotation; scene.add(car); return car; });
-  const physics = await createPhysics(ball, carModels, input);
+  let previousScore = 0;
+  const physics = await createPhysics(ball, carModels, input, (state) => {
+    if (state.red + state.blue > previousScore) controls.sound('goal');
+    previousScore = state.red + state.blue; onState(state);
+  }, difficulty, round);
+  const restart = () => { previousScore = 0; physics.restart(); };
   // Reuse a small pool of rings to keep collision feedback inexpensive on mobile.
   const impacts = Array.from({ length: 6 }, () => {
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.75, 0.9, 32), new THREE.MeshBasicMaterial({ color: 0xffd15c, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
@@ -24,6 +32,7 @@ export async function createScene(container: HTMLElement, input: DriveInput) {
   let nextImpact = 0;
   let flash = 0;
   const hit = (position: THREE.Vector3, strength: number) => {
+    controls.sound('hit');
     const impact = impacts[nextImpact++ % impacts.length];
     impact.ring.position.set(position.x, 0.12, position.z);
     impact.age = 0;
@@ -36,18 +45,24 @@ export async function createScene(container: HTMLElement, input: DriveInput) {
   ballHalo.position.y = 0.1;
   scene.add(ballHalo);
   const cameraTarget = new THREE.Vector3();
-  const resize = () => { const { clientWidth, clientHeight } = container; if (!clientWidth || !clientHeight) return; const aspect = clientWidth / clientHeight; const halfHeight = Math.max(12.5, 18 / aspect); camera.left = -halfHeight * aspect; camera.right = halfHeight * aspect; camera.top = halfHeight; camera.bottom = -halfHeight; camera.updateProjectionMatrix(); renderer.setSize(clientWidth, clientHeight); };
+  const resize = () => { const { clientWidth, clientHeight } = container; if (!clientWidth || !clientHeight) return; const aspect = clientWidth / clientHeight; const halfHeight = Math.max(19, 31 / aspect); camera.left = -halfHeight * aspect; camera.right = halfHeight * aspect; camera.top = halfHeight; camera.bottom = -halfHeight; camera.updateProjectionMatrix(); renderer.setSize(clientWidth, clientHeight); };
   const observer = new ResizeObserver(resize); observer.observe(container); resize(); let frame = 0;
   let previous = performance.now();
   const animate = (now: number) => {
     const delta = Math.min((now - previous) / 1000, 0.1);
     previous = now;
-    physics.update(delta, hit);
+    if (controls.running) physics.update(delta, hit);
     // Keep a wide framing while gently following the play rather than the car.
     const blend = 1 - Math.exp(-2 * delta);
     cameraTarget.x += (THREE.MathUtils.clamp(ball.position.x * 0.08, -0.8, 0.8) - cameraTarget.x) * blend;
     cameraTarget.z += (THREE.MathUtils.clamp(ball.position.z * 0.06, -0.4, 0.4) - cameraTarget.z) * blend;
-    camera.position.set(cameraTarget.x, 45, 22 + cameraTarget.z);
+    if (controls.camera === 'follow') {
+      const car = carModels[0];
+      cameraTarget.lerp(car.position, blend);
+      camera.position.set(cameraTarget.x, 24, cameraTarget.z + 18);
+    } else if (controls.camera === 'top') {
+      cameraTarget.set(0, 0, 0); camera.position.set(0, 65, 0.01);
+    } else { camera.position.set(cameraTarget.x, 65, 34 + cameraTarget.z); }
     camera.lookAt(cameraTarget);
     ballHalo.position.x = ball.position.x;
     ballHalo.position.z = ball.position.z;
@@ -66,5 +81,6 @@ export async function createScene(container: HTMLElement, input: DriveInput) {
     renderer.render(scene, camera);
     frame = requestAnimationFrame(animate);
   }; frame = requestAnimationFrame(animate);
-  return () => { physics.dispose(); cancelAnimationFrame(frame); observer.disconnect(); scene.traverse(object => { if (object instanceof THREE.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach(mat => { if (mat instanceof THREE.MeshBasicMaterial && mat.map) mat.map.dispose(); mat.dispose(); }); } }); renderer.dispose(); renderer.domElement.remove(); };
+  const dispose = () => { physics.dispose(); cancelAnimationFrame(frame); observer.disconnect(); scene.traverse(object => { if (object instanceof THREE.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach(mat => { if (mat instanceof THREE.MeshBasicMaterial && mat.map) mat.map.dispose(); mat.dispose(); }); } }); renderer.dispose(); renderer.domElement.remove(); };
+  return { restart, dispose };
 }

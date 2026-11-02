@@ -1,6 +1,16 @@
 ﻿# BATE-BATE SOCCER
 
-Protótipo da **Fase 2**: arena 3D, quatro carrinhos, bola e física com Rapier. O carrinho vermelho é controlável; os demais disputam a bola automaticamente. A partida ainda não tem gols nem placar.
+Jogo de futebol de carrinhos para navegador, com Three.js e física Rapier.
+
+## Como jogar
+
+Escolha entre fácil, médio e difícil no menu e faça três gols na trave azul para vencer. A primeira rodada começa com um carrinho por equipe. Cada vitória abre uma nova rodada com adversários mais rápidos; a partir da segunda rodada, o azul entra com dois carrinhos. Ao marcar um gol, você ganha um aliado (até dois carrinhos vermelhos); ao sofrer um gol, perde esse aliado. A bola e os carrinhos voltam à posição inicial após cada gol.
+
+- **W/S** ou **setas para cima/baixo**: acelerar e dar ré.
+- **A/D** ou **setas para esquerda/direita**: virar.
+- Em telas sensíveis ao toque, use os botões na tela.
+- Alterne entre as câmeras **Arena**, **Carrinho** e **Alto** nos controles abaixo do campo.
+- Clique em **Ligar som** para ativar música eletrônica sintetizada e efeitos de colisão e gol. O áudio começa após a interação do jogador.
 
 ## Executar localmente
 
@@ -15,24 +25,14 @@ Abra o endereço informado pelo Vite no Chrome ou Edge com WebGL habilitado. Par
 
 ## Publicação no GitHub Pages
 
-O workflow em `.github/workflows/pages.yml` gera e publica o jogo quando há um push na branch `main`. No repositório do GitHub, abra **Settings → Pages** e selecione **GitHub Actions** em **Build and deployment → Source**. Depois acompanhe a execução na aba **Actions**. O endereço publicado aparece nas configurações do Pages e no resultado da implantação.
-
-## Controles
-
-- **W/S** ou **setas para cima/baixo**: avançar e recuar com o carrinho vermelho.
-- **A/D** ou **setas para esquerda/direita**: virar.
-- A câmera oferece uma visão ampla da arena e acompanha suavemente a bola.
-- Em telas sensíveis ao toque, use os botões para virar, acelerar e dar ré. Combine direção e aceleração.
+O workflow em `.github/workflows/pages.yml` gera e publica o jogo quando há um push na branch `main`. No repositório do GitHub, abra **Settings → Pages** e selecione **GitHub Actions** em **Build and deployment → Source**. Depois acompanhe a execução na aba **Actions**.
 
 ## Organização
 
 - `src/game/arena.ts`: campo, traves, redes e estádio.
 - `src/game/objects.ts`: modelos da bola e dos carrinhos.
-- `src/game/physics.ts`: corpos, colisores e controles.
+- `src/game/physics.ts`: física, controles, equipes, gols e regras da partida.
 - `src/game/scene.ts`: câmera, iluminação, renderização e limpeza de recursos.
-- `src/app.tsx`: interface do protótipo.
-
-## Próxima fase
-
-A Fase 3 adicionará detecção de gol, placar e reinício. Até lá, as extremidades da arena estão fechadas por colisores e não há contagem de gols. Os três adversários usam uma lógica simples de perseguição e recuperação.
-
+- `src/game/audio.ts`: música e efeitos sintetizados.
+- `src/game/match-rules.ts`: progressão e dificuldades.
+- `src/app.tsx`: interface, placar e controles.

@@ -11,8 +11,10 @@ function tube(group: THREE.Group, a: THREE.Vector3, b: THREE.Vector3, radius: nu
 export function createArena() {
   const group = new THREE.Group();
   box(group, 30, 0.5, 18, 0, -0.3, 0, dark);
-  const floor = new THREE.MeshStandardMaterial({ color: 0x1c3944, metalness: 0.42, roughness: 0.48 });
+  const floor = new THREE.MeshStandardMaterial({ color: 0x3b6c4a, metalness: 0.05, roughness: 0.9 });
   box(group, 28, 0.1, 16, 0, 0, 0, floor);
+  const stripe = new THREE.MeshStandardMaterial({ color: 0x477a52, roughness: 0.95 });
+  for (let x = -12; x <= 12; x += 4) box(group, 2, 0.008, 15.4, x, 0.055, 0, stripe);
   // Court markings are thin raised geometry, visible from any camera angle.
   box(group, 0.09, 0.015, 15.6, 0, 0.06, 0, line);
   for (const z of [-7.7, 7.7]) box(group, 27.5, 0.015, 0.08, 0, 0.06, z, line);
@@ -20,10 +22,10 @@ export function createArena() {
   const circle = new THREE.Mesh(new THREE.RingGeometry(2.25, 2.32, 64), line); circle.rotation.x = -Math.PI / 2; circle.position.y = 0.065; group.add(circle);
   for (const side of [-1, 1]) {
     box(group, 3.2, 0.015, 0.08, side * 12.1, 0.06, -3.7, line); box(group, 3.2, 0.015, 0.08, side * 12.1, 0.06, 3.7, line); box(group, 0.08, 0.015, 7.4, side * 10.5, 0.06, 0, line);
-    const glow = new THREE.MeshBasicMaterial({ color: side < 0 ? 0x1bd9ff : 0xff4767 });
+    const glow = new THREE.MeshBasicMaterial({ color: side < 0 ? 0xe2604d : 0x69b7df });
     for (const z of [-3, 3]) tube(group, new THREE.Vector3(side * 13.7, 0.1, z), new THREE.Vector3(side * 13.7, 3.5, z), 0.09, glow);
     tube(group, new THREE.Vector3(side * 13.7, 3.5, -3), new THREE.Vector3(side * 13.7, 3.5, 3), 0.09, glow);
-    const net = new THREE.MeshBasicMaterial({ color: side < 0 ? 0x39b4d1 : 0xd75c7a, transparent: true, opacity: 0.6 });
+    const net = new THREE.MeshBasicMaterial({ color: side < 0 ? 0xd38476 : 0x87b9c7, transparent: true, opacity: 0.6 });
     for (let z = -3; z <= 3.01; z += 0.5) tube(group, new THREE.Vector3(side * 14.7, 0.1, z), new THREE.Vector3(side * 14.7, 3.5, z), 0.012, net);
     for (let y = 0.1; y <= 3.6; y += 0.5) tube(group, new THREE.Vector3(side * 14.7, y, -3), new THREE.Vector3(side * 14.7, y, 3), 0.012, net);
     for (const z of [-3, 3]) { tube(group, new THREE.Vector3(side * 13.7, 3.5, z), new THREE.Vector3(side * 14.7, 3.5, z), 0.035, net); tube(group, new THREE.Vector3(side * 14.7, 0.1, z), new THREE.Vector3(side * 14.7, 3.5, z), 0.035, net); }
