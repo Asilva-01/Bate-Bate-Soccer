@@ -3,6 +3,7 @@ import { createArena } from './arena';
 import { createBall, createCar } from './objects';
 import { createPhysics, type DriveInput, type MatchState } from './physics';
 import type { Difficulty } from './match-rules';
+import { GAME_CONFIG } from './game-config';
 
 export type GameControls = { camera: 'arena' | 'follow' | 'top'; running: boolean; restart: () => void; sound: (kind: 'hit' | 'goal') => void };
 
@@ -12,7 +13,7 @@ export async function createScene(container: HTMLElement, input: DriveInput, con
   const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; container.appendChild(renderer.domElement);
   scene.add(new THREE.HemisphereLight(0xa8dfff, 0x1d1420, 2)); const main = new THREE.DirectionalLight(0xffffff, 2.3); main.position.set(4, 18, 8); scene.add(main);
   const blue = new THREE.PointLight(0x00bfff, 100, 24); blue.position.set(-12, 5, -5); scene.add(blue); const red = new THREE.PointLight(0xff2856, 100, 24); red.position.set(12, 5, 5); scene.add(red);
-  const arena = createArena(); arena.scale.set(2.8, 1, 2.45); scene.add(arena); const ball = createBall(); scene.add(ball);
+  const arena = createArena(); arena.scale.set(GAME_CONFIG.arena.scaleX, 1, GAME_CONFIG.arena.scaleZ); scene.add(arena); const ball = createBall(); scene.add(ball);
   const cars = [[0xf43c4b, '01', -18, 0, -Math.PI / 2], [0x148fff, '02', 18, 0, Math.PI / 2], [0xff8b5b, '03', -18, 9, -Math.PI / 2], [0x45b6e5, '04', 18, -9, Math.PI / 2], [0x1978c7, '05', 18, 9, Math.PI / 2], [0x7abde5, '06', 24, 0, Math.PI / 2]] as const;
   const carModels = cars.map(([color, number, x, z, rotation]) => { const car = createCar(color, number); car.position.set(x, 0, z); car.rotation.y = rotation; scene.add(car); return car; });
   let previousScore = 0;

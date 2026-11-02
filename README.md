@@ -37,3 +37,10 @@ O workflow em `.github/workflows/pages.yml` gera e publica o jogo quando há um 
 - `src/game/match-rules.ts`: progressão e dificuldades.
 - `src/game/stuck-monitor.ts`: detecção de bola presa perto das bordas.
 - `src/app.tsx`: interface, placar e controles.
+
+
+## Testes
+
+Execute `npm test` para validar regras de gol, IA, progressão, recuperação da bola, controles e reinício. `npm run build` verifica TypeScript e a versão de produção.
+
+A configuração de massas, aderência, limites de velocidade, dimensões dos gols e passo fixo está centralizada em `src/game/game-config.ts`. A IA escolhe o atacante mais próximo entre os carrinhos da própria equipe, enquanto os demais defendem a área do gol.

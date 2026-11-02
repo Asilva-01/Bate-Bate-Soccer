@@ -1,3 +1,4 @@
+import { GAME_CONFIG } from './game-config';
 import * as THREE from 'three';
 
 const dark = new THREE.MeshStandardMaterial({ color: 0x101b29, roughness: 0.65, metalness: 0.35 });
@@ -20,15 +21,19 @@ export function createArena() {
   for (const z of [-7.7, 7.7]) box(group, 27.5, 0.015, 0.08, 0, 0.06, z, line);
   for (const x of [-13.7, 13.7]) box(group, 0.08, 0.015, 15.4, x, 0.06, 0, line);
   const circle = new THREE.Mesh(new THREE.RingGeometry(2.25, 2.32, 64), line); circle.rotation.x = -Math.PI / 2; circle.position.y = 0.065; group.add(circle);
+  const goal = GAME_CONFIG.arena;
   for (const side of [-1, 1]) {
     box(group, 3.2, 0.015, 0.08, side * 12.1, 0.06, -3.7, line); box(group, 3.2, 0.015, 0.08, side * 12.1, 0.06, 3.7, line); box(group, 0.08, 0.015, 7.4, side * 10.5, 0.06, 0, line);
+    const postX = side * (goal.goalLineX / goal.scaleX);
+    const backX = side * (goal.goalBackX / goal.scaleX);
+    const halfWidth = goal.goalHalfWidth / goal.scaleZ;
     const glow = new THREE.MeshBasicMaterial({ color: side < 0 ? 0xe2604d : 0x69b7df });
-    for (const z of [-3, 3]) tube(group, new THREE.Vector3(side * 13.7, 0.1, z), new THREE.Vector3(side * 13.7, 3.5, z), 0.09, glow);
-    tube(group, new THREE.Vector3(side * 13.7, 3.5, -3), new THREE.Vector3(side * 13.7, 3.5, 3), 0.09, glow);
+    for (const z of [-halfWidth, halfWidth]) tube(group, new THREE.Vector3(postX, 0.1, z), new THREE.Vector3(postX, goal.goalHeight, z), 0.09, glow);
+    tube(group, new THREE.Vector3(postX, goal.goalHeight, -halfWidth), new THREE.Vector3(postX, goal.goalHeight, halfWidth), 0.09, glow);
     const net = new THREE.MeshBasicMaterial({ color: side < 0 ? 0xd38476 : 0x87b9c7, transparent: true, opacity: 0.6 });
-    for (let z = -3; z <= 3.01; z += 0.5) tube(group, new THREE.Vector3(side * 14.7, 0.1, z), new THREE.Vector3(side * 14.7, 3.5, z), 0.012, net);
-    for (let y = 0.1; y <= 3.6; y += 0.5) tube(group, new THREE.Vector3(side * 14.7, y, -3), new THREE.Vector3(side * 14.7, y, 3), 0.012, net);
-    for (const z of [-3, 3]) { tube(group, new THREE.Vector3(side * 13.7, 3.5, z), new THREE.Vector3(side * 14.7, 3.5, z), 0.035, net); tube(group, new THREE.Vector3(side * 14.7, 0.1, z), new THREE.Vector3(side * 14.7, 3.5, z), 0.035, net); }
+    for (let z = -halfWidth; z <= halfWidth + 0.01; z += 0.5) tube(group, new THREE.Vector3(backX, 0.1, z), new THREE.Vector3(backX, goal.goalHeight, z), 0.012, net);
+    for (let y = 0.1; y <= goal.goalHeight + 0.01; y += 0.5) tube(group, new THREE.Vector3(backX, y, -halfWidth), new THREE.Vector3(backX, y, halfWidth), 0.012, net);
+    for (const z of [-halfWidth, halfWidth]) { tube(group, new THREE.Vector3(postX, goal.goalHeight, z), new THREE.Vector3(backX, goal.goalHeight, z), 0.035, net); tube(group, new THREE.Vector3(backX, 0.1, z), new THREE.Vector3(backX, goal.goalHeight, z), 0.035, net); }
   }
   const wall = new THREE.MeshStandardMaterial({ color: 0x2b5469, transparent: true, opacity: 0.35, metalness: 0.5, roughness: 0.3 });
   const neon = new THREE.MeshBasicMaterial({ color: 0x23ccff });
