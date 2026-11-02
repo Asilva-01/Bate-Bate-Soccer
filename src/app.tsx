@@ -86,7 +86,7 @@ export default function App() {
         </div>}
       </div>
       <div className="game-tools"><div className="camera-controls" aria-label="Câmera"><span>VISÃO</span>{([['arena', 'Arena'], ['follow', 'Carrinho'], ['top', 'Alto']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={camera === value} onClick={() => changeCamera(value)}>{label}</button>)}</div><button className="sound-toggle" type="button" aria-pressed={sound} onClick={() => { setAudioError(false); void audio.current?.toggle().then(setSound).catch(() => { setSound(false); setAudioError(true); }); }}>{sound ? '♫ SOM LIGADO' : '♫ LIGAR SOM'}</button></div>
-      <div className="match-notes"><p className="rules">MARQUE PARA GANHAR UM ALIADO · SOFRA UM GOL E PERCA O REFORÇO</p><p className="keyboard-shortcuts"><kbd>↑</kbd> ACELERAR <kbd>↓</kbd> RÉ <kbd>←</kbd> <kbd>→</kbd> VIRAR</p></div>{audioError && <p role="alert" className="audio-error">Não foi possível iniciar o áudio. Tente novamente.</p>}
+      <div className="match-notes"><p className="rules">ALIADO DISPONÍVEL AO MARCAR A PARTIR DA RODADA 2 · SOFRA GOL E PERCA O REFORÇO</p><p className="keyboard-shortcuts"><kbd>↑</kbd> ACELERAR <kbd>↓</kbd> RÉ <kbd>←</kbd> <kbd>→</kbd> VIRAR</p></div>{audioError && <p role="alert" className="audio-error">Não foi possível iniciar o áudio. Tente novamente.</p>}
     </section>
   </main>;
 }

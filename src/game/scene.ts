@@ -8,12 +8,12 @@ export type GameControls = { camera: 'arena' | 'follow' | 'top'; running: boolea
 
 export async function createScene(container: HTMLElement, input: DriveInput, controls: GameControls, onState: (state: MatchState) => void, difficulty: Difficulty, round: number) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x101b2b);
-  const camera = new THREE.OrthographicCamera(-20, 20, 12, -12, 0.1, 150); camera.position.set(0, 45, 22); camera.lookAt(0, 0, 0);
+  const camera = new THREE.OrthographicCamera(-20, 20, 12, -12, 0.1, 180); camera.position.set(0, 45, 22); camera.lookAt(0, 0, 0);
   const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; container.appendChild(renderer.domElement);
   scene.add(new THREE.HemisphereLight(0xa8dfff, 0x1d1420, 2)); const main = new THREE.DirectionalLight(0xffffff, 2.3); main.position.set(4, 18, 8); scene.add(main);
   const blue = new THREE.PointLight(0x00bfff, 100, 24); blue.position.set(-12, 5, -5); scene.add(blue); const red = new THREE.PointLight(0xff2856, 100, 24); red.position.set(12, 5, 5); scene.add(red);
-  const arena = createArena(); arena.scale.set(2.1, 1, 1.8); scene.add(arena); const ball = createBall(); scene.add(ball);
-  const cars = [[0xf43c4b, '01', -14, 0, -Math.PI / 2], [0x148fff, '02', 14, 0, Math.PI / 2], [0xff8b5b, '03', -14, 7, -Math.PI / 2], [0x45b6e5, '04', 14, -7, Math.PI / 2]] as const;
+  const arena = createArena(); arena.scale.set(2.4, 1, 2); scene.add(arena); const ball = createBall(); scene.add(ball);
+  const cars = [[0xf43c4b, '01', -15, 0, -Math.PI / 2], [0x148fff, '02', 15, 0, Math.PI / 2], [0xff8b5b, '03', -15, 8, -Math.PI / 2], [0x45b6e5, '04', 15, -8, Math.PI / 2], [0x1978c7, '05', 15, 8, Math.PI / 2], [0x7abde5, '06', 21, 0, Math.PI / 2]] as const;
   const carModels = cars.map(([color, number, x, z, rotation]) => { const car = createCar(color, number); car.position.set(x, 0, z); car.rotation.y = rotation; scene.add(car); return car; });
   let previousScore = 0;
   const physics = await createPhysics(ball, carModels, input, (state) => {
@@ -45,7 +45,7 @@ export async function createScene(container: HTMLElement, input: DriveInput, con
   ballHalo.position.y = 0.1;
   scene.add(ballHalo);
   const cameraTarget = new THREE.Vector3();
-  const resize = () => { const { clientWidth, clientHeight } = container; if (!clientWidth || !clientHeight) return; const aspect = clientWidth / clientHeight; const halfHeight = Math.max(22, 36 / aspect); camera.left = -halfHeight * aspect; camera.right = halfHeight * aspect; camera.top = halfHeight; camera.bottom = -halfHeight; camera.updateProjectionMatrix(); renderer.setSize(clientWidth, clientHeight); };
+  const resize = () => { const { clientWidth, clientHeight } = container; if (!clientWidth || !clientHeight) return; const aspect = clientWidth / clientHeight; const halfHeight = Math.max(25, 41 / aspect); camera.left = -halfHeight * aspect; camera.right = halfHeight * aspect; camera.top = halfHeight; camera.bottom = -halfHeight; camera.updateProjectionMatrix(); renderer.setSize(clientWidth, clientHeight); };
   const observer = new ResizeObserver(resize); observer.observe(container); resize(); let frame = 0;
   let previous = performance.now();
   const animate = (now: number) => {
@@ -61,8 +61,8 @@ export async function createScene(container: HTMLElement, input: DriveInput, con
       cameraTarget.lerp(car.position, blend);
       camera.position.set(cameraTarget.x, 24, cameraTarget.z + 18);
     } else if (controls.camera === 'top') {
-      cameraTarget.set(0, 0, 0); camera.position.set(0, 75, 0.01);
-    } else { camera.position.set(cameraTarget.x, 75, 40 + cameraTarget.z); }
+      cameraTarget.set(0, 0, 0); camera.position.set(0, 85, 0.01);
+    } else { camera.position.set(cameraTarget.x, 85, 45 + cameraTarget.z); }
     camera.lookAt(cameraTarget);
     ballHalo.position.x = ball.position.x;
     ballHalo.position.z = ball.position.z;

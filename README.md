@@ -4,7 +4,7 @@ Jogo de futebol de carrinhos para navegador, com Three.js e física Rapier.
 
 ## Como jogar
 
-Escolha entre fácil, médio e difícil no menu e faça três gols na trave azul para vencer. A primeira rodada começa com um carrinho por equipe. Cada vitória abre uma nova rodada com adversários mais rápidos; a partir da segunda rodada, o azul entra com dois carrinhos. Ao marcar um gol, você ganha um aliado (até dois carrinhos vermelhos); ao sofrer um gol, perde esse aliado. A bola e os carrinhos voltam à posição inicial após cada gol.
+Escolha entre fácil, médio e difícil no menu e faça três gols na trave azul para vencer. A primeira rodada começa com um carrinho por equipe. Cada vitória abre uma nova rodada com adversários mais rápidos; o azul recebe mais carrinhos nas rodadas 2, 4 e 6 (até quatro). A partir da segunda rodada, ao marcar um gol você ganha um aliado (até dois carrinhos vermelhos); ao sofrer um gol, perde esse aliado. Após cada gol, ou quando a bola ficar presa por quatro segundos perto da borda, todos voltam para posições centrais e o placar é preservado.
 
 - **W/S** ou **setas para cima/baixo**: acelerar e dar ré.
 - **A/D** ou **setas para esquerda/direita**: virar.
@@ -35,4 +35,5 @@ O workflow em `.github/workflows/pages.yml` gera e publica o jogo quando há um 
 - `src/game/scene.ts`: câmera, iluminação, renderização e limpeza de recursos.
 - `src/game/audio.ts`: música e efeitos sintetizados.
 - `src/game/match-rules.ts`: progressão e dificuldades.
+- `src/game/stuck-monitor.ts`: detecção de bola presa perto das bordas.
 - `src/app.tsx`: interface, placar e controles.

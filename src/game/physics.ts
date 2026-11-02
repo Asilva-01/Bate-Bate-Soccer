@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { opponentCars, opponentSpeed, type Difficulty } from './match-rules';
+import { createStuckMonitor } from './stuck-monitor';
 
 const STEP = 1 / 60;
 const CAR_HEIGHT = 0.4;
@@ -17,13 +18,13 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
   const fixedBox = (x: number, y: number, z: number, hx: number, hy: number, hz: number) => {
     world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z).setRestitution(0.5));
   };
-  fixedBox(0, -0.2, 0, 33, 0.25, 17);
-  for (const z of [-14.76, 14.76]) fixedBox(0, 0.7, z, 29.8, 0.7, 0.1);
+  fixedBox(0, -0.2, 0, 38, 0.25, 19);
+  for (const z of [-16.4, 16.4]) fixedBox(0, 0.7, z, 34, 0.7, 0.1);
   // Leave the middle of each end open for the goals.
-  for (const x of [-29.61, 29.61]) {
-    for (const z of [-10.08, 10.08]) fixedBox(x, 1.75, z, 0.1, 1.75, 4.68);
-    fixedBox(x, 4, 0, 0.1, 0.5, 5.4);
-    fixedBox(x * 1.06, 1.75, 0, 0.1, 1.75, 5.4);
+  for (const x of [-33.84, 33.84]) {
+    for (const z of [-11.2, 11.2]) fixedBox(x, 1.75, z, 0.1, 1.75, 5.2);
+    fixedBox(x, 4, 0, 0.1, 0.5, 6);
+    fixedBox(x * 1.06, 1.75, 0, 0.1, 1.75, 6);
   }
 
   const ballBody = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(0, 0.96, 0).setCcdEnabled(true).setLinearDamping(0.2));
@@ -38,17 +39,20 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
     return body;
   });
   let state: MatchState = { red: 0, blue: 0, redCars: 1, blueCars: opponentCars(round), message: 'Faça 3 gols para vencer', finished: false };
-  const enabled = (index: number) => index === 0 || index === 1 || (index === 2 ? state.redCars > 1 : state.blueCars > 1);
+  const enabled = (index: number) => index === 0 || index === 1 || (index === 2 ? state.redCars > 1 : index - 2 < state.blueCars);
+  const spawn = [{ x: -15, z: 0 }, { x: 15, z: 0 }, { x: -15, z: 8 }, { x: 15, z: -8 }, { x: 15, z: 8 }, { x: 21, z: 0 }];
   const setTeams = () => carBodies.forEach((body, index) => { const active = enabled(index); body.setEnabled(active); cars[index].visible = active; });
   const resetPositions = () => {
+    stuck.reset();
+    opponents.forEach((opponent) => { opponent.blockedTime = 0; opponent.recoveryTime = 0; opponent.attacking = false; });
     ballBody.setTranslation({ x: 0, y: 0.96, z: 0 }, true);
     ballBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
     ballBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
     heading = -Math.PI / 2;
     carBodies.forEach((body, index) => {
-      aiHeadings[index] = index % 2 === 0 ? -Math.PI / 2 : Math.PI / 2;
+      aiHeadings[index] = index === 0 || index === 2 ? -Math.PI / 2 : Math.PI / 2;
       body.setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), aiHeadings[index]), true);
-      body.setTranslation({ x: index % 2 === 0 ? -14 : 14, y: CAR_HEIGHT, z: index < 2 ? 0 : (index === 2 ? 7 : -7) }, true);
+      body.setTranslation({ x: spawn[index].x, y: CAR_HEIGHT, z: spawn[index].z }, true);
       body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     });
@@ -72,7 +76,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
   window.addEventListener('keyup', keyup);
   window.addEventListener('blur', clearKeys);
   let accumulator = 0;
-  let ballBlockedTime = 0;
+  const stuck = createStuckMonitor();
   const sync = () => {
     const position = ballBody.translation();
     const rotation = ballBody.rotation();
@@ -119,17 +123,22 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           const state = opponents[index];
           const position = opponent.translation();
           const pushX = index === 2 ? 1 : -1;
-          const pushZ = Math.abs(target.z) > 12 ? -Math.sign(target.z) * 0.8 : 0;
+          const playerPosition = carBodies[0].translation();
+          const playerBlocksGoal = index !== 2 && playerPosition.x < target.x - 2 && Math.abs(playerPosition.z - target.z) < 4;
+          const aimZ = playerBlocksGoal ? (playerPosition.z >= 0 ? -4.8 : 4.8) : 0;
+          const goalX = index === 2 ? 34 : -34;
+          const pushZ = THREE.MathUtils.clamp((aimZ - target.z) / Math.min(14, Math.max(8, Math.abs(goalX - target.x))), -0.8, 0.8);
           const pushLength = Math.hypot(pushX, pushZ);
           const directionX = pushX / pushLength;
           const directionZ = pushZ / pushLength;
-          const offset = (index - 2) * 1.4;
-          const approachX = THREE.MathUtils.clamp(target.x - directionX * 3 - directionZ * offset, -27, 27);
-          const approachZ = THREE.MathUtils.clamp(target.z - directionZ * 3 + directionX * offset, -12, 12);
+          const offset = index === 1 || index === 2 ? 0 : (index - 3) * 2.5 - 2.5;
+          const approachX = THREE.MathUtils.clamp(target.x - directionX * 3 - directionZ * offset, -31, 31);
+          const approachZ = THREE.MathUtils.clamp(target.z - directionZ * 3 + directionX * offset, -14, 14);
           const approachDistance = Math.hypot(approachX - position.x, approachZ - position.z);
           const ballDistance = Math.hypot(target.x - position.x, target.z - position.z);
           if (approachDistance < 1.3) state.attacking = true;
-          if (ballDistance > 5 || (position.x - target.x) * directionX + (position.z - target.z) * directionZ > 0.5) state.attacking = false;
+          const sidewaysError = Math.abs((position.x - target.x) * directionZ - (position.z - target.z) * directionX);
+          if (ballDistance > 5 || (position.x - target.x) * directionX + (position.z - target.z) * directionZ > 0.5 || (ballDistance < 4 && sidewaysError > 2)) state.attacking = false;
           const dx = (state.attacking ? target.x + directionX * 1.5 : approachX) - position.x;
           const dz = (state.attacking ? target.z + directionZ * 1.5 : approachZ) - position.z;
           const desired = Math.atan2(-dx, -dz);
@@ -152,27 +161,23 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           }
         }
         const before = ballBody.linvel();
-        const nearWall = Math.abs(target.x) > 27 || Math.abs(target.z) > 12;
-        const contested = carBodies.some((body) => {
-          const position = body.translation();
-          return Math.hypot(position.x - target.x, position.z - target.z) < 3.5;
-        });
-        ballBlockedTime = nearWall && contested && Math.hypot(before.x, before.z) < 0.6 ? ballBlockedTime + STEP : 0;
-        if (ballBlockedTime > 2) {
-          const inwardX = Math.abs(target.x) > 27 ? -Math.sign(target.x) : 0;
-          const inwardZ = Math.abs(target.z) > 12 ? -Math.sign(target.z) : 0;
-          ballBody.applyImpulse({ x: inwardX * 2, y: 0, z: inwardZ * 2 }, true);
-          ballBlockedTime = 0;
-        }
         world.step(events);
         const ballPosition = ballBody.translation();
-        if (Math.abs(ballPosition.x) > 29.7 && Math.abs(ballPosition.z) < 5.4 && ballPosition.y < 3.5) {
+        if (Math.abs(ballPosition.x) > 33.95 && Math.abs(ballPosition.z) < 6 && ballPosition.y < 3.5) {
           const redGoal = ballPosition.x > 0;
-          if (redGoal) { state.red++; state.redCars = 2; state.message = 'GOL VERMELHO! Reforço liberado.'; }
+          if (redGoal) { state.red++; if (round >= 2) { state.redCars = 2; state.message = 'GOL VERMELHO! Reforço liberado.'; } else state.message = 'GOL VERMELHO! Reforço disponível a partir da rodada 2.'; }
           else { state.blue++; state.redCars = 1; state.message = 'GOL AZUL! Você perdeu o reforço.'; }
           state.finished = state.red >= 3 || state.blue >= 3;
           if (state.finished) state.message = redGoal ? 'Vitória! Você venceu a partida.' : 'Fim de jogo. O azul venceu.';
           resetPositions(); onState({ ...state });
+          accumulator = 0;
+          break;
+        }
+        if (stuck.update(ballPosition.x, ballPosition.z, STEP)) {
+          resetPositions();
+          state.message = 'Bola presa: jogada reiniciada no centro.';
+          onState({ ...state });
+          events.drainCollisionEvents(() => {});
           accumulator = 0;
           break;
         }
