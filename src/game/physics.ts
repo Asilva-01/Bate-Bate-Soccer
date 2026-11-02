@@ -247,6 +247,10 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
       }
       sync();
     },
+    resetAccumulator() {
+      accumulator = 0;
+      keys.clear();
+    },
     restart() {
       state = { red: 0, blue: 0, redCars: 1, blueCars: opponentCars(round), message: 'Faça 3 gols para vencer', finished: false };
       accumulator = 0; resetPositions(); onState({ ...state });

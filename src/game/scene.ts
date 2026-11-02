@@ -5,7 +5,7 @@ import { createPhysics, type DriveInput, type MatchState } from './physics';
 import type { Difficulty } from './match-rules';
 import { GAME_CONFIG } from './game-config';
 
-export type GameControls = { camera: 'arena' | 'follow' | 'top'; running: boolean; restart: () => void; sound: (kind: 'hit' | 'goal') => void };
+export type GameControls = { camera: 'arena' | 'follow' | 'top'; running: boolean; restart: () => void; resetTiming: () => void; sound: (kind: 'hit' | 'goal') => void };
 
 export async function createScene(container: HTMLElement, input: DriveInput, controls: GameControls, onState: (state: MatchState) => void, difficulty: Difficulty, round: number) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x101b2b);
@@ -36,6 +36,14 @@ export async function createScene(container: HTMLElement, input: DriveInput, con
     previousBlue = state.blue;
     onState(state);
   }, difficulty, round, () => controls.running);
+  let previous = performance.now();
+  let skipNextDelta = false;
+  const resetTiming = () => {
+    previous = performance.now();
+    skipNextDelta = true;
+    physics.resetAccumulator();
+  };
+  controls.resetTiming = resetTiming;
   const restart = () => { previousRed = 0; previousBlue = 0; goalCelebrationAge = 1; goalCelebration.visible = false; physics.restart(); };
   // Reuse a small pool of rings to keep collision feedback inexpensive on mobile.
   const impacts = Array.from({ length: 6 }, () => {
@@ -63,9 +71,9 @@ export async function createScene(container: HTMLElement, input: DriveInput, con
   const cameraTarget = new THREE.Vector3();
   const resize = () => { const { clientWidth, clientHeight } = container; if (!clientWidth || !clientHeight) return; const aspect = clientWidth / clientHeight; const halfHeight = Math.max(29, 48 / aspect); camera.left = -halfHeight * aspect; camera.right = halfHeight * aspect; camera.top = halfHeight; camera.bottom = -halfHeight; camera.updateProjectionMatrix(); renderer.setSize(clientWidth, clientHeight); };
   const observer = new ResizeObserver(resize); observer.observe(container); resize(); let frame = 0;
-  let previous = performance.now();
   const animate = (now: number) => {
-    const delta = Math.min((now - previous) / 1000, 0.1);
+    const delta = skipNextDelta ? 0 : Math.min((now - previous) / 1000, 0.1);
+    skipNextDelta = false;
     previous = now;
     if (controls.running) physics.update(delta, hit);
     if (goalCelebrationAge < 1) {
@@ -104,6 +112,6 @@ export async function createScene(container: HTMLElement, input: DriveInput, con
     renderer.render(scene, camera);
     frame = requestAnimationFrame(animate);
   }; frame = requestAnimationFrame(animate);
-  const dispose = () => { physics.dispose(); cancelAnimationFrame(frame); observer.disconnect(); scene.traverse(object => { if (object instanceof THREE.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach(mat => { if (mat instanceof THREE.MeshBasicMaterial && mat.map) mat.map.dispose(); mat.dispose(); }); } }); renderer.dispose(); renderer.domElement.remove(); };
+  const dispose = () => { physics.dispose(); if (controls.resetTiming === resetTiming) controls.resetTiming = () => {}; cancelAnimationFrame(frame); observer.disconnect(); scene.traverse(object => { if (object instanceof THREE.Mesh) { object.geometry.dispose(); const materials = Array.isArray(object.material) ? object.material : [object.material]; materials.forEach(mat => { if (mat instanceof THREE.MeshBasicMaterial && mat.map) mat.map.dispose(); mat.dispose(); }); } }); renderer.dispose(); renderer.domElement.remove(); };
   return { restart, dispose };
 }
