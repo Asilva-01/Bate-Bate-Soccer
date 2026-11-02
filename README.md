@@ -1,6 +1,6 @@
 ﻿# BATE-BATE SOCCER
 
-Protótipo da **Fase 2**: arena 3D, quatro carrinhos, bola e física com Rapier. O carrinho vermelho é controlável; os demais reagem às colisões. A partida ainda não tem gols nem placar.
+Protótipo da **Fase 2**: arena 3D, quatro carrinhos, bola e física com Rapier. O carrinho vermelho é controlável; os demais disputam a bola automaticamente. A partida ainda não tem gols nem placar.
 
 ## Executar localmente
 
@@ -21,8 +21,8 @@ O workflow em `.github/workflows/pages.yml` gera e publica o jogo quando há um 
 
 - **W/S** ou **setas para cima/baixo**: avançar e recuar com o carrinho vermelho.
 - **A/D** ou **setas para esquerda/direita**: virar.
-- Arraste a cena para girar a câmera e use a roda do mouse para aproximar ou afastar.
-- Em telas sensíveis ao toque, use os botões para virar, acelerar e dar ré. Combine direção e aceleração e arraste a arena para girar a câmera.
+- A câmera oferece uma visão ampla da arena e acompanha suavemente a bola.
+- Em telas sensíveis ao toque, use os botões para virar, acelerar e dar ré. Combine direção e aceleração.
 
 ## Organização
 
@@ -34,5 +34,5 @@ O workflow em `.github/workflows/pages.yml` gera e publica o jogo quando há um 
 
 ## Próxima fase
 
-A Fase 3 adicionará detecção de gol, placar e reinício. Até lá, as extremidades da arena estão fechadas por colisores e não há contagem de gols. Os outros três carrinhos ainda não têm controles ou inteligência artificial.
+A Fase 3 adicionará detecção de gol, placar e reinício. Até lá, as extremidades da arena estão fechadas por colisores e não há contagem de gols. Os três adversários usam uma lógica simples de perseguição e recuperação.
 

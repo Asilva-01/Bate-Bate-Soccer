@@ -33,6 +33,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
   });
   let heading = cars[0].rotation.y;
   const aiHeadings = cars.map((car) => car.rotation.y);
+  const opponents = cars.map(() => ({ blockedTime: 0, recoveryTime: 0, attacking: false }));
   const keys = new Set<string>();
   const accepted = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
   const keydown = (event: KeyboardEvent) => {
@@ -46,6 +47,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
   window.addEventListener('keyup', keyup);
   window.addEventListener('blur', clearKeys);
   let accumulator = 0;
+  let ballBlockedTime = 0;
   const sync = () => {
     const position = ballBody.translation();
     const rotation = ballBody.rotation();
@@ -74,23 +76,58 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
         const car = carBodies[0];
         if (turn) car.setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), heading), true);
         if (forward) car.applyImpulse({ x: -Math.sin(heading) * forward * 1.4, y: 0, z: -Math.cos(heading) * forward * 1.4 }, true);
-        // Opponents steer towards the ball and keep a little space around it.
+        // Approach from behind the ball, then push it away from the nearest wall.
         const target = ballBody.translation();
         for (let index = 1; index < carBodies.length; index++) {
           const opponent = carBodies[index];
+          const state = opponents[index];
           const position = opponent.translation();
-          const dx = target.x - position.x;
-          const dz = target.z - position.z;
-          const distance = Math.hypot(dx, dz);
+          const pushX = Math.abs(target.x) > 10 ? -Math.sign(target.x) : index === 3 ? 1 : -1;
+          const pushZ = Math.abs(target.z) > 5 ? -Math.sign(target.z) * 0.8 : 0;
+          const pushLength = Math.hypot(pushX, pushZ);
+          const directionX = pushX / pushLength;
+          const directionZ = pushZ / pushLength;
+          const offset = (index - 2) * 1.4;
+          const approachX = THREE.MathUtils.clamp(target.x - directionX * 3 - directionZ * offset, -12.5, 12.5);
+          const approachZ = THREE.MathUtils.clamp(target.z - directionZ * 3 + directionX * offset, -6.5, 6.5);
+          const approachDistance = Math.hypot(approachX - position.x, approachZ - position.z);
+          const ballDistance = Math.hypot(target.x - position.x, target.z - position.z);
+          if (approachDistance < 1.3) state.attacking = true;
+          if (ballDistance > 5 || (position.x - target.x) * directionX + (position.z - target.z) * directionZ > 0.5) state.attacking = false;
+          const dx = (state.attacking ? target.x + directionX * 1.5 : approachX) - position.x;
+          const dz = (state.attacking ? target.z + directionZ * 1.5 : approachZ) - position.z;
           const desired = Math.atan2(-dx, -dz);
           const difference = Math.atan2(Math.sin(desired - aiHeadings[index]), Math.cos(desired - aiHeadings[index]));
-          aiHeadings[index] += THREE.MathUtils.clamp(difference, -2 * STEP, 2 * STEP);
+          const velocity = opponent.linvel();
+          const tryingToMove = Math.abs(difference) < 1.2;
+          state.blockedTime = tryingToMove && Math.hypot(velocity.x, velocity.z) < 0.35 ? state.blockedTime + STEP : 0;
+          if (state.blockedTime > 1.2 && state.recoveryTime <= 0) {
+            state.recoveryTime = 1;
+            state.blockedTime = 0;
+            state.attacking = false;
+          }
+          const recovering = state.recoveryTime > 0;
+          state.recoveryTime = Math.max(0, state.recoveryTime - STEP);
+          aiHeadings[index] += recovering ? (index % 2 ? 1 : -1) * 1.8 * STEP : THREE.MathUtils.clamp(difference, -2.5 * STEP, 2.5 * STEP);
           opponent.setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), aiHeadings[index]), true);
-          if (distance > 1.8 && Math.abs(difference) < 1.2) {
-            opponent.applyImpulse({ x: -Math.sin(aiHeadings[index]) * 0.72, y: 0, z: -Math.cos(aiHeadings[index]) * 0.72 }, true);
+          if (recovering || tryingToMove) {
+            const acceleration = recovering ? -0.8 : 0.72;
+            opponent.applyImpulse({ x: -Math.sin(aiHeadings[index]) * acceleration, y: 0, z: -Math.cos(aiHeadings[index]) * acceleration }, true);
           }
         }
         const before = ballBody.linvel();
+        const nearWall = Math.abs(target.x) > 12 || Math.abs(target.z) > 6.5;
+        const contested = carBodies.some((body) => {
+          const position = body.translation();
+          return Math.hypot(position.x - target.x, position.z - target.z) < 3.5;
+        });
+        ballBlockedTime = nearWall && contested && Math.hypot(before.x, before.z) < 0.6 ? ballBlockedTime + STEP : 0;
+        if (ballBlockedTime > 2) {
+          const inwardX = Math.abs(target.x) > 12 ? -Math.sign(target.x) : 0;
+          const inwardZ = Math.abs(target.z) > 6.5 ? -Math.sign(target.z) : 0;
+          ballBody.applyImpulse({ x: inwardX * 2, y: 0, z: inwardZ * 2 }, true);
+          ballBlockedTime = 0;
+        }
         world.step(events);
         events.drainCollisionEvents((first, second, started) => {
           if (!started) return;

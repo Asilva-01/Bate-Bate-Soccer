@@ -49,9 +49,9 @@ export default function App() {
   return <main className="app">
     <header className="topbar"><a className="brand" href="#inicio"><span className="brand-icon" aria-hidden="true">★</span><span>BATE-BATE <strong>SOCCER</strong></span></a><span className="top-tag"><span className="live-dot" /> PROTÓTIPO · FASE 02</span></header>
     <section className="game" id="inicio" aria-labelledby="title">
-      <div className="game-heading"><div><p className="eyebrow">ENTRE NA ARENA <span> / 02</span></p><h1 id="title">BATE DIFERENTE<span>.</span></h1></div><p className="game-hint"><strong>CARRINHO VERMELHO</strong><br />WASD ou setas para dirigir · Arraste para girar a câmera</p></div>
+      <div className="game-heading"><div><p className="eyebrow">ENTRE NA ARENA <span> / 02</span></p><h1 id="title">BATE DIFERENTE<span>.</span></h1></div><p className="game-hint"><strong>CARRINHO VERMELHO</strong><br />WASD ou setas para dirigir</p></div>
       <div className="scene-frame"><div ref={container} className="scene" role="img" aria-label="Arena 3D com quatro carrinhos e uma bola. Controle o carrinho vermelho com WASD, setas ou botões de toque." />{error && <p className="scene-error" role="alert">Não foi possível iniciar a cena 3D. Verifique se o WebGL está habilitado no navegador.</p>}
-        <div className="scene-overlay"><span><i className="live-dot" /> ARENA NEON</span><span>ARRASTE PARA GIRAR A CÂMERA</span></div>
+        <div className="scene-overlay"><span><i className="live-dot" /> ARENA NEON</span><span>VISÃO AMPLA DA ARENA</span></div>
         <div className="touch-controls" aria-label="Controles do carrinho">
           <div className="control-group steering">{directions.slice(0, 2).map(({ key, label, symbol }) => <button key={key} type="button" aria-label={label} onPointerDown={(event) => press(event, key)} onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release}>{symbol}</button>)}</div>
           <div className="control-group pedals">{directions.slice(2).map(({ key, label, symbol }) => <button key={key} type="button" aria-label={label} onPointerDown={(event) => press(event, key)} onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release}><span>{symbol}</span><small>{key === 'forward' ? 'ACELERAR' : 'RÉ'}</small></button>)}</div>
