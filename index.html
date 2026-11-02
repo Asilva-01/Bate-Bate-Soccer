@@ -1,1 +1,23 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="theme-color" content="#080d19" /><title>Bate-Bate Soccer</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#080d19" />
+    <title>Bate-Bate Soccer</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 320px; background: #101816; color: #f5f7fb; font-family: Arial, sans-serif; }
+      .boot-loader { display: flex; min-height: 100vh; align-items: center; justify-content: center; gap: 12px; font-size: 14px; font-weight: 700; letter-spacing: 0.08em; }
+      .boot-loader::before { width: 18px; height: 18px; border: 2px solid #738273; border-top-color: #f3c96c; border-radius: 50%; content: ''; animation: boot-spin 0.8s linear infinite; }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .boot-loader::before { animation-duration: 2s; } }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="boot-loader" role="status" aria-live="polite">Carregando estádio</div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
