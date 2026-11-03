@@ -14,3 +14,6 @@
 @media(max-height:500px) and (orientation:landscape){.scene{height:calc(100dvh - 88px);min-height:0}.keyboard-guide{margin:4px 0;gap:8px}.keyboard-guide kbd{height:18px}.menu-card{padding:10px 18px}.difficulty{margin:5px 0}.match-notes{display:none}}
 
 .pause-overlay{z-index:4}
+.touch-control-hint,.mobile-control-guide{display:none}.orientation-hint{display:none;position:absolute;z-index:2;align-items:center;gap:6px;padding:5px 7px 5px 11px;border:1px solid #ffffff42;border-radius:20px;background:#08130dd9;color:#f4ecd6;box-shadow:0 3px 12px #0006;font-size:11px;font-weight:700;letter-spacing:.02em}.orientation-hint button{display:grid;place-items:center;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:#ffffff20;color:inherit;font-size:18px;line-height:1;cursor:pointer}.orientation-hint button:focus-visible{outline:2px solid #f3c96c;outline-offset:2px}
+@media(pointer:coarse){.game-hint{display:block}.game-hint strong,.game-hint br{display:none}.keyboard-control-hint,.keyboard-guide{display:none}.touch-control-hint,.mobile-control-guide{display:block}.mobile-control-guide{margin:12px 0 0;color:#405749;font-size:12px;font-weight:700}}
+@media(max-width:599px) and (orientation:portrait){.orientation-hint{display:flex;top:42px;left:50%;transform:translateX(-50%)}}
