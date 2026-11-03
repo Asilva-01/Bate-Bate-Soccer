@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BALL } from './config';
 
 function material(color: number, emissive = 0) { return new THREE.MeshStandardMaterial({ color, emissive, metalness: 0.4, roughness: 0.35 }); }
 function mesh(group: THREE.Group, geometry: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) { const object = new THREE.Mesh(geometry, mat); object.position.set(x, y, z); group.add(object); return object; }
@@ -67,9 +68,9 @@ export function createCar(color: number, number: string) {
   return group;
 }
 export function createBall() {
-  const group = new THREE.Group(); mesh(group, new THREE.IcosahedronGeometry(0.9, 2), material(0xf2f5f2), 0, 0, 0);
+  const group = new THREE.Group(); mesh(group, new THREE.IcosahedronGeometry(BALL.radius, BALL.geometryDetail), material(0xf2f5f2), 0, 0, 0);
   // Dark pentagonal patches are placed on the vertices of an icosahedron.
-  const vertices = new THREE.IcosahedronGeometry(1, 0).getAttribute('position'); const seen = new Set<string>();
-  for (let i = 0; i < vertices.count; i++) { const v = new THREE.Vector3(vertices.getX(i), vertices.getY(i), vertices.getZ(i)).normalize(); const key = v.toArray().map(n => n.toFixed(3)).join(','); if (seen.has(key)) continue; seen.add(key); const patch = new THREE.Mesh(new THREE.CircleGeometry(0.27, 5), material(0x101720)); patch.position.copy(v.multiplyScalar(0.904)); patch.lookAt(patch.position.clone().multiplyScalar(2)); group.add(patch); }
-  group.position.y = 0.94; return group;
+  const vertices = new THREE.IcosahedronGeometry(1, BALL.vertexGeometryDetail).getAttribute('position'); const seen = new Set<string>();
+  for (let i = 0; i < vertices.count; i++) { const v = new THREE.Vector3(vertices.getX(i), vertices.getY(i), vertices.getZ(i)).normalize(); const key = v.toArray().map(n => n.toFixed(3)).join(','); if (seen.has(key)) continue; seen.add(key); const patch = new THREE.Mesh(new THREE.CircleGeometry(BALL.patchRadius, 5), material(0x101720)); patch.position.copy(v.multiplyScalar(BALL.patchSurfaceRadius)); patch.lookAt(patch.position.clone().multiplyScalar(2)); group.add(patch); }
+  group.position.y = BALL.radius + BALL.visualOffsetY; return group;
 }

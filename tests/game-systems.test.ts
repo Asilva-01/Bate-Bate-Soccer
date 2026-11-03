@@ -1,8 +1,7 @@
-import assert from 'node:assert/strict';
-import { after, before, test } from 'node:test';
+import { afterAll, beforeAll, expect, test } from 'vitest';
 import * as THREE from 'three';
-import { GAME_CONFIG } from '../src/game/game-config.ts';
-import { createPhysics } from '../src/game/physics.ts';
+import { BALL, CAR, FIELD } from '../src/game/config.ts';
+import { createPhysics } from '../src/game/physics-runtime.ts';
 import { awardGoal, getScoringSide, opponentCars, opponentSpeed, selectAttacker } from '../src/game/match-rules.ts';
 import { createStuckMonitor } from '../src/game/stuck-monitor.ts';
 import { getLateralRecoveryImpulse } from '../src/game/vehicle-dynamics.ts';
@@ -11,57 +10,63 @@ const handlers = new Map<string, (event: unknown) => void>();
 let physics: Awaited<ReturnType<typeof createPhysics>> | undefined;
 let states: Array<{ red: number; blue: number; finished: boolean }> = [];
 
-before(() => Object.assign(globalThis, {
+beforeAll(() => Object.assign(globalThis, {
   window: globalThis,
   addEventListener: (name: string, handler: (event: unknown) => void) => handlers.set(name, handler),
   removeEventListener: (name: string) => handlers.delete(name),
 }));
-after(() => physics?.dispose());
+afterAll(() => physics?.dispose());
 
 test('gol exige a bola inteira dentro da abertura e da profundidade da trave', () => {
-  const { arena, ball, goals } = GAME_CONFIG;
-  const x = arena.goalLineX + ball.radius + goals.scoreMargin + 0.01;
-  assert.equal(getScoringSide({ x, y: 0.96, z: 0 }), 'blue');
-  assert.equal(getScoringSide({ x: -x, y: 0.96, z: 0 }), 'red');
-  assert.equal(getScoringSide({ x: arena.goalLineX, y: 0.96, z: 0 }), null);
-  assert.equal(getScoringSide({ x, y: 0.96, z: arena.goalHalfWidth }), null);
-  assert.equal(getScoringSide({ x, y: arena.goalHeight, z: 0 }), null);
+  const x = FIELD.goalLineX + BALL.radius + FIELD.scoreMargin + 0.01;
+  expect(getScoringSide({ x, y: BALL.radius + BALL.bodyOffset, z: 0 })).toBe('blue');
+  expect(getScoringSide({ x: -x, y: BALL.radius + BALL.bodyOffset, z: 0 })).toBe('red');
+  expect(getScoringSide({ x: FIELD.goalLineX, y: BALL.radius + BALL.bodyOffset, z: 0 })).toBeNull();
+  expect(getScoringSide({ x, y: BALL.radius + BALL.bodyOffset, z: FIELD.goalHalfWidth })).toBeNull();
+  expect(getScoringSide({ x, y: FIELD.goalHeight, z: 0 })).toBeNull();
 });
 
-test('dificuldade, escalacao e selecao de atacante progridem', () => {
-  assert.ok(opponentSpeed('easy', 1) < opponentSpeed('medium', 1));
-  assert.ok(opponentSpeed('medium', 1) < opponentSpeed('hard', 1));
-  assert.ok(opponentSpeed('easy', 2) > opponentSpeed('easy', 1));
-  assert.deepEqual([1, 2, 4, 6, 10].map(opponentCars), [1, 2, 3, 4, 4]);
-  assert.equal(selectAttacker([{ x: 12, y: 0, z: 0 }, { x: 2, y: 0, z: 1 }], { x: 0, y: 0, z: 0 }), 1);
-  assert.equal(selectAttacker([], { x: 0, y: 0, z: 0 }), -1);
+test('opponentSpeed preserva os valores por dificuldade e sobe ate o limite', () => {
+  expect(opponentSpeed('easy', 1)).toBe(0.8);
+  expect(opponentSpeed('medium', 1)).toBe(0.95);
+  expect(opponentSpeed('hard', 1)).toBe(1.1);
+  expect(opponentSpeed('easy', 10)).toBe(1.5);
+});
+
+test('opponentCars cresce a cada duas rodadas e respeita o limite', () => {
+  expect([1, 2, 4, 6, 10].map(opponentCars)).toEqual([1, 2, 3, 4, 4]);
+});
+
+test('dificuldade e selecao de atacante progridem', () => {
+  expect(selectAttacker([{ x: 12, y: 0, z: 0 }, { x: 2, y: 0, z: 1 }], { x: 0, y: 0, z: 0 })).toBe(1);
+  expect(selectAttacker([], { x: 0, y: 0, z: 0 })).toBe(-1);
 });
 
 test('placar encerra aos tres gols e libera reforco a partir da segunda rodada', () => {
   const initial = { red: 0, blue: 0, redCars: 1, blueCars: 1, finished: false, message: '' };
   const first = awardGoal(initial, 'red', 1);
-  assert.deepEqual([first.red, first.redCars, first.finished], [1, 1, false]);
+  expect([first.red, first.redCars, first.finished]).toEqual([1, 1, false]);
   const second = awardGoal(first, 'red', 2);
-  assert.deepEqual([second.red, second.redCars, second.finished], [2, 2, false]);
+  expect([second.red, second.redCars, second.finished]).toEqual([2, 2, false]);
   const victory = awardGoal(second, 'red', 2);
-  assert.deepEqual([victory.red, victory.finished], [3, true]);
-  assert.equal(awardGoal(first, 'blue', 1).redCars, 1);
+  expect([victory.red, victory.finished]).toEqual([3, true]);
+  expect(awardGoal(first, 'blue', 1).redCars).toBe(1);
 });
 
 test('detector recupera quique preso e preserva bola em movimento', () => {
   const monitor = createStuckMonitor();
   let recovered = false;
   for (let i = 0; i < 300; i++) recovered ||= monitor.update(38 + Math.sin(i / 8), 19, 1 / 60);
-  assert.equal(recovered, true);
+  expect(recovered).toBe(true);
   monitor.reset();
-  for (let i = 0; i < 600; i++) assert.equal(monitor.update(36, 16 + i / 60, 1 / 60), false);
+  for (let i = 0; i < 600; i++) expect(monitor.update(36, 16 + i / 60, 1 / 60)).toBe(false);
 });
 
 test('recuperacao apos impacto reduz derrapagem sem frear o movimento para frente', () => {
-  const lateral = getLateralRecoveryImpulse(4, 0, 0, GAME_CONFIG.vehicles.mass, GAME_CONFIG.vehicles.impactRecoveryGrip);
-  const forward = getLateralRecoveryImpulse(0, 4, 0, GAME_CONFIG.vehicles.mass, GAME_CONFIG.vehicles.impactRecoveryGrip);
-  assert.ok(4 * lateral.x < 0, 'impulse must oppose sideways velocity');
-  assert.equal(Math.hypot(forward.x, forward.z), 0, 'impulse must preserve velocity along the heading');
+  const lateral = getLateralRecoveryImpulse(4, 0, 0, CAR.mass, CAR.impactRecoveryGrip);
+  const forward = getLateralRecoveryImpulse(0, 4, 0, CAR.mass, CAR.impactRecoveryGrip);
+  expect(4 * lateral.x).toBeLessThan(0);
+  expect(Math.hypot(forward.x, forward.z)).toBe(0);
 });
 
 test('setas movem o carrinho, IA aproxima e reiniciar zera o placar', async () => {
@@ -76,10 +81,10 @@ test('setas movem o carrinho, IA aproxima e reiniciar zera o placar', async () =
   send('keydown', 'ArrowUp');
   for (let i = 0; i < 120; i++) physics?.update(1 / 60, () => {});
   send('keyup', 'ArrowUp');
-  assert.ok(cars[0].position.x > -18);
+  expect(cars[0].position.x).toBeGreaterThan(-18);
   for (let i = 0; i < 300; i++) physics.update(1 / 60, () => {});
-  assert.ok(cars[1].position.x < 18, 'adversary should move toward the ball during the opening');
+  expect(cars[1].position.x).toBeLessThan(18);
   physics.restart();
-  assert.deepEqual([states.at(-1)?.red, states.at(-1)?.blue, states.at(-1)?.finished], [0, 0, false]);
+  expect([states.at(-1)?.red, states.at(-1)?.blue, states.at(-1)?.finished]).toEqual([0, 0, false]);
   physics.dispose(); physics = undefined;
 });

@@ -43,6 +43,6 @@ O workflow em `.github/workflows/pages.yml` gera e publica o jogo quando há um 
 
 Execute `npm test` para validar regras de gol, IA, progressão, recuperação da bola, controles e reinício. `npm run build` verifica TypeScript e a versão de produção.
 
-A configuração de massas, aderência, limites de velocidade, dimensões dos gols e passo fixo está centralizada em `src/game/game-config.ts`. A IA escolhe o atacante mais próximo entre os carrinhos da própria equipe, enquanto os demais defendem a área do gol.
+A configuração de massas, aderência, limites de velocidade, dimensões dos gols e passo fixo está centralizada em `src/game/config.ts`. A IA escolhe o atacante mais próximo entre os carrinhos da própria equipe, enquanto os demais defendem a área do gol.
 
 Colisões fortes ativam uma correção breve de derrapagem, e cada gol dispara uma comemoração visual na trave correspondente.

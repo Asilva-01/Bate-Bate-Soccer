@@ -1,49 +1,102 @@
-import { GAME_CONFIG } from './game-config';
 import * as THREE from 'three';
+import { FIELD } from './config';
 
 const dark = new THREE.MeshStandardMaterial({ color: 0x101b29, roughness: 0.65, metalness: 0.35 });
 const line = new THREE.MeshBasicMaterial({ color: 0x9bd8e7 });
+
 function box(group: THREE.Group, w: number, h: number, d: number, x: number, y: number, z: number, material: THREE.Material) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material); mesh.position.set(x, y, z); group.add(mesh); return mesh;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+  mesh.position.set(x, y, z);
+  group.add(mesh);
+  return mesh;
 }
+
 function tube(group: THREE.Group, a: THREE.Vector3, b: THREE.Vector3, radius: number, material: THREE.Material) {
-  const direction = new THREE.Vector3().subVectors(b, a); const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, direction.length(), 8), material); mesh.position.copy(a).add(b).multiplyScalar(0.5); mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize()); group.add(mesh);
+  const direction = new THREE.Vector3().subVectors(b, a);
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, direction.length(), FIELD.visual.tubeSegments), material);
+  mesh.position.copy(a).add(b).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+  group.add(mesh);
 }
+
 export function createArena() {
   const group = new THREE.Group();
-  box(group, 30, 0.5, 18, 0, -0.3, 0, dark);
+  const visual = FIELD.visual;
+  box(group, visual.base.width, visual.base.height, visual.base.depth, 0, visual.base.y, 0, dark);
   const floor = new THREE.MeshStandardMaterial({ color: 0x3b6c4a, metalness: 0.05, roughness: 0.9 });
-  box(group, 28, 0.1, 16, 0, 0, 0, floor);
+  box(group, visual.floor.width, visual.floor.height, visual.floor.depth, 0, 0, 0, floor);
   const stripe = new THREE.MeshStandardMaterial({ color: 0x477a52, roughness: 0.95 });
-  for (let x = -12; x <= 12; x += 4) box(group, 2, 0.008, 15.4, x, 0.055, 0, stripe);
-  // Court markings are thin raised geometry, visible from any camera angle.
-  box(group, 0.09, 0.015, 15.6, 0, 0.06, 0, line);
-  for (const z of [-7.7, 7.7]) box(group, 27.5, 0.015, 0.08, 0, 0.06, z, line);
-  for (const x of [-13.7, 13.7]) box(group, 0.08, 0.015, 15.4, x, 0.06, 0, line);
-  const circle = new THREE.Mesh(new THREE.RingGeometry(2.25, 2.32, 64), line); circle.rotation.x = -Math.PI / 2; circle.position.y = 0.065; group.add(circle);
-  const goal = GAME_CONFIG.arena;
-  for (const side of [-1, 1]) {
-    box(group, 3.2, 0.015, 0.08, side * 12.1, 0.06, -3.7, line); box(group, 3.2, 0.015, 0.08, side * 12.1, 0.06, 3.7, line); box(group, 0.08, 0.015, 7.4, side * 10.5, 0.06, 0, line);
-    const postX = side * (goal.goalLineX / goal.scaleX);
-    const backX = side * (goal.goalBackX / goal.scaleX);
-    const halfWidth = goal.goalHalfWidth / goal.scaleZ;
-    const glow = new THREE.MeshBasicMaterial({ color: side < 0 ? 0xe2604d : 0x69b7df });
-    for (const z of [-halfWidth, halfWidth]) tube(group, new THREE.Vector3(postX, 0.1, z), new THREE.Vector3(postX, goal.goalHeight, z), 0.09, glow);
-    tube(group, new THREE.Vector3(postX, goal.goalHeight, -halfWidth), new THREE.Vector3(postX, goal.goalHeight, halfWidth), 0.09, glow);
-    const net = new THREE.MeshBasicMaterial({ color: side < 0 ? 0xd38476 : 0x87b9c7, transparent: true, opacity: 0.6 });
-    for (let z = -halfWidth; z <= halfWidth + 0.01; z += 0.5) tube(group, new THREE.Vector3(backX, 0.1, z), new THREE.Vector3(backX, goal.goalHeight, z), 0.012, net);
-    for (let y = 0.1; y <= goal.goalHeight + 0.01; y += 0.5) tube(group, new THREE.Vector3(backX, y, -halfWidth), new THREE.Vector3(backX, y, halfWidth), 0.012, net);
-    for (const z of [-halfWidth, halfWidth]) { tube(group, new THREE.Vector3(postX, goal.goalHeight, z), new THREE.Vector3(backX, goal.goalHeight, z), 0.035, net); tube(group, new THREE.Vector3(backX, 0.1, z), new THREE.Vector3(backX, goal.goalHeight, z), 0.035, net); }
+  for (let x = visual.stripes.startX; x <= visual.stripes.endX; x += visual.stripes.stepX) {
+    box(group, visual.stripes.width, visual.stripes.height, visual.stripes.depth, x, visual.stripes.y, 0, stripe);
   }
+
+  const markings = visual.markings;
+  box(group, markings.center.width, markings.center.height, markings.center.depth, 0, markings.center.y, 0, line);
+  for (const z of [-markings.sidelines.zOffset, markings.sidelines.zOffset]) {
+    box(group, markings.sidelines.width, markings.sidelines.height, markings.sidelines.thickness, 0, markings.sidelines.y, z, line);
+  }
+  for (const x of [-markings.ends.xOffset, markings.ends.xOffset]) {
+    box(group, markings.ends.width, markings.ends.height, markings.ends.depth, x, markings.ends.y, 0, line);
+  }
+  const circle = new THREE.Mesh(new THREE.RingGeometry(markings.centerCircle.innerRadius, markings.centerCircle.outerRadius, markings.centerCircle.segments), line);
+  circle.rotation.x = -Math.PI / 2;
+  circle.position.y = markings.centerCircle.y;
+  group.add(circle);
+
+  const goalMarks = markings.goalArea;
+  for (const side of [-1, 1]) {
+    for (const z of [-goalMarks.zOffset, goalMarks.zOffset]) {
+      box(group, goalMarks.width, goalMarks.height, goalMarks.thickness, side * goalMarks.xOffset, goalMarks.y, z, line);
+    }
+    box(group, goalMarks.thickness, goalMarks.height, goalMarks.depth, side * goalMarks.crossXOffset, goalMarks.y, 0, line);
+  }
+
+  const goal = FIELD.visual.goalFrame;
+  for (const side of [-1, 1]) {
+    const postX = side * (FIELD.goalLineX / FIELD.scaleX);
+    const backX = side * (FIELD.goalBackX / FIELD.scaleX);
+    const halfWidth = FIELD.goalHalfWidth / FIELD.scaleZ;
+    const glow = new THREE.MeshBasicMaterial({ color: side < 0 ? 0xe2604d : 0x69b7df });
+    for (const z of [-halfWidth, halfWidth]) {
+      tube(group, new THREE.Vector3(postX, goal.footY, z), new THREE.Vector3(postX, FIELD.goalHeight, z), goal.postRadius, glow);
+    }
+    tube(group, new THREE.Vector3(postX, FIELD.goalHeight, -halfWidth), new THREE.Vector3(postX, FIELD.goalHeight, halfWidth), goal.postRadius, glow);
+    const net = new THREE.MeshBasicMaterial({ color: side < 0 ? 0xd38476 : 0x87b9c7, transparent: true, opacity: 0.6 });
+    for (let z = -halfWidth; z <= halfWidth + goal.netMargin; z += goal.netStep) {
+      tube(group, new THREE.Vector3(backX, goal.footY, z), new THREE.Vector3(backX, FIELD.goalHeight, z), goal.netRadius, net);
+    }
+    for (let y = goal.footY; y <= FIELD.goalHeight + goal.netMargin; y += goal.netStep) {
+      tube(group, new THREE.Vector3(backX, y, -halfWidth), new THREE.Vector3(backX, y, halfWidth), goal.netRadius, net);
+    }
+    for (const z of [-halfWidth, halfWidth]) {
+      tube(group, new THREE.Vector3(postX, FIELD.goalHeight, z), new THREE.Vector3(backX, FIELD.goalHeight, z), goal.braceRadius, net);
+      tube(group, new THREE.Vector3(backX, goal.footY, z), new THREE.Vector3(backX, FIELD.goalHeight, z), goal.braceRadius, net);
+    }
+  }
+
   const wall = new THREE.MeshStandardMaterial({ color: 0x2b5469, transparent: true, opacity: 0.35, metalness: 0.5, roughness: 0.3 });
   const neon = new THREE.MeshBasicMaterial({ color: 0x23ccff });
-  for (const z of [-8.2, 8.2]) { box(group, 28, 1.1, 0.18, 0, 0.65, z, wall); box(group, 28, 0.09, 0.2, 0, 1.25, z, neon); }
-  for (const x of [-14.1, 14.1]) for (const z of [-5.65, 5.65]) box(group, 0.2, 1.1, 5, x, 0.65, z, wall);
-  // Layered stadium seating and colored lamps.
-  // Keep the near side clear so the fixed camera can see the whole pitch.
-  for (const z of [-1]) for (let i = 0; i < 4; i++) {
-    box(group, 30, 0.5, 1.4, 0, 0.15 + i * 0.65, z * (9.1 + i * 1.1), dark);
-    for (let x = -13; x <= 13; x += 1.2) box(group, 0.14, 0.16, 0.1, x, 0.5 + i * 0.65, z * (9.1 + i * 1.1), new THREE.MeshBasicMaterial({ color: (Math.round(x * 10 + i) % 3 === 0) ? 0xffbd38 : 0x4584a3 }));
+  const walls = visual.walls;
+  for (const z of [-walls.sideZ, walls.sideZ]) {
+    box(group, walls.width, walls.height, walls.depth, 0, walls.y, z, wall);
+    box(group, walls.neonWidth, walls.neonHeight, walls.neonDepth, 0, walls.neonY, z, neon);
+  }
+  for (const x of [-walls.supportX, walls.supportX]) {
+    for (const z of [-walls.supportZ, walls.supportZ]) {
+      box(group, walls.supportWidth, walls.supportHeight, walls.supportDepth, x, walls.y, z, wall);
+    }
+  }
+
+  const stands = visual.stands;
+  for (const side of [stands.side]) for (let row = 0; row < stands.rows; row++) {
+    const z = side * (stands.z + row * stands.rowZStep);
+    box(group, stands.width, visual.base.height, stands.depth, 0, stands.y + row * stands.rowYStep, z, dark);
+    for (let x = stands.seatStartX; x <= stands.seatEndX; x += stands.seatStepX) {
+      const seatColor = (Math.round(x * stands.seatColorMultiplier + row) % stands.seatColorCycle === 0) ? 0xffbd38 : 0x4584a3;
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(stands.seatWidth, stands.seatHeight, stands.seatDepth), new THREE.MeshBasicMaterial({ color: seatColor }));
+      seat.position.set(x, stands.seatY + row * stands.rowYStep, z);
+      group.add(seat);
+    }
   }
   return group;
 }
