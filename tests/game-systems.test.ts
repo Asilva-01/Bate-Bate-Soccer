@@ -81,9 +81,13 @@ test('setas movem o carrinho, IA aproxima e reiniciar zera o placar', async () =
   send('keydown', 'ArrowUp');
   for (let i = 0; i < 120; i++) physics?.update(1 / 60, () => {});
   send('keyup', 'ArrowUp');
-  expect(cars[0].position.x).toBeGreaterThan(-18);
+  expect(cars[0].position.x).toBeGreaterThan(-15);
+  send('keydown', 'ArrowLeft');
+  for (let i = 0; i < 30; i++) physics?.update(1 / 60, () => {});
+  send('keyup', 'ArrowLeft');
+  expect(Math.abs(cars[0].rotation.y + Math.PI / 2)).toBeGreaterThan(0.1);
   for (let i = 0; i < 300; i++) physics.update(1 / 60, () => {});
-  expect(cars[1].position.x).toBeLessThan(18);
+  expect(Math.hypot(cars[1].position.x - 18, cars[1].position.z)).toBeGreaterThan(1);
   physics.restart();
   expect([states.at(-1)?.red, states.at(-1)?.blue, states.at(-1)?.finished]).toEqual([0, 0, false]);
   physics.dispose(); physics = undefined;

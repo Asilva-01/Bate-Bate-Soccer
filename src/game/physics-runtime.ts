@@ -103,6 +103,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
         const speed = velocity.x * directionX + velocity.z * directionZ;
         const steeringScale = THREE.MathUtils.clamp(Math.abs(speed) / CAR.steeringReferenceSpeed, 0, 1);
         heading += turn * CAR.steeringRate * steeringScale * STEP * (speed < -CAR.reverseSteeringThreshold ? -1 : 1);
+        car.setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), heading), true);
         const nextDirectionX = -Math.sin(heading);
         const nextDirectionZ = -Math.cos(heading);
         const lateralSpeed = velocity.x * nextDirectionZ - velocity.z * nextDirectionX;
@@ -162,21 +163,19 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           }
           const recovering = state.recoveryTime > 0;
           state.recoveryTime = Math.max(0, state.recoveryTime - STEP);
-          aiHeadings[index] += recovering ? (index % 2 ? 1 : -1) * AI.recoveryTurnRate * STEP : THREE.MathUtils.clamp(difference, -AI.headingTurnRate * STEP, AI.headingTurnRate * STEP);
+          aiHeadings[index] += THREE.MathUtils.clamp(difference, -AI.headingTurnRate * STEP, AI.headingTurnRate * STEP);
           opponent.setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), aiHeadings[index]), true);
-          const aiSpeed = opponent.linvel();
           const aiCap = opponentSpeed(difficulty, round) * AI.speedMultiplier;
           const aiForward = isAttacker ? aiCap : aiCap * AI.defenderSpeedFactor;
-          if (!recovering) {
-            const steeringFactor = THREE.MathUtils.clamp(1 - Math.abs(difference) / Math.PI, AI.minSteeringFactor, 1);
-            const nextX = velocity.x - Math.sin(aiHeadings[index]) * aiForward * steeringFactor * STEP;
-            const nextZ = velocity.z - Math.cos(aiHeadings[index]) * aiForward * steeringFactor * STEP;
-            const nextSpeed = Math.hypot(nextX, nextZ);
-            const speedScale = nextSpeed > aiCap ? aiCap / nextSpeed : 1;
-            opponent.setLinvel({ x: nextX * speedScale, y: velocity.y, z: nextZ * speedScale }, true);
-          }
-          const aiPlanarSpeed = Math.hypot(aiSpeed.x, aiSpeed.z);
-          if (aiPlanarSpeed > aiCap && aiPlanarSpeed > 0) opponent.setLinvel({ x: aiSpeed.x * aiCap / aiPlanarSpeed, y: aiSpeed.y, z: aiSpeed.z * aiCap / aiPlanarSpeed }, true);
+          const steeringFactor = THREE.MathUtils.clamp(1 - Math.abs(difference) / Math.PI, AI.minSteeringFactor, 1);
+          const recoveryDirection = recovering ? -1 : 1;
+          const recoverySpeed = recovering ? aiCap * 0.55 : aiForward;
+          const commandedSpeed = recoverySpeed * steeringFactor * recoveryDirection;
+          opponent.setLinvel({
+            x: -Math.sin(aiHeadings[index]) * commandedSpeed,
+            y: velocity.y,
+            z: -Math.cos(aiHeadings[index]) * commandedSpeed,
+          }, true);
         }
         const before = ballBody.linvel();
         const carVelocitiesBefore = carBodies.map((body) => body.linvel());
