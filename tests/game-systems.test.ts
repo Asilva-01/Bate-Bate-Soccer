@@ -5,6 +5,7 @@ import { createPhysics } from '../src/game/physics-runtime.ts';
 import { awardGoal, getScoringSide, opponentCars, opponentSpeed, selectAttacker } from '../src/game/match-rules.ts';
 import { createStuckMonitor } from '../src/game/stuck-monitor.ts';
 import { getLateralRecoveryImpulse } from '../src/game/vehicle-dynamics.ts';
+import { containPlanarBody } from '../src/game/arena-boundaries.ts';
 
 const handlers = new Map<string, (event: unknown) => void>();
 let physics: Awaited<ReturnType<typeof createPhysics>> | undefined;
@@ -69,6 +70,21 @@ test('recuperacao apos impacto reduz derrapagem sem frear o movimento para frent
   expect(Math.hypot(forward.x, forward.z)).toBe(0);
 });
 
+test('limites do campo mantem corpos dentro e rebate a velocidade para dentro', () => {
+  expect(containPlanarBody(45, -25, 8, -4, 40, 19, 0.4)).toEqual({
+    x: 40,
+    z: -19,
+    velocityX: -3.2,
+    velocityZ: 1.6,
+  });
+  expect(containPlanarBody(10, 5, 2, 1, 40, 19, 0.4)).toEqual({
+    x: 10,
+    z: 5,
+    velocityX: 2,
+    velocityZ: 1,
+  });
+});
+
 test('setas movem o carrinho, IA aproxima e reiniciar zera o placar', async () => {
   const ball = new THREE.Group();
   const positions = [[-18, 0], [18, 0], [-18, 9], [18, -9], [18, 9], [24, 0]];
@@ -78,16 +94,20 @@ test('setas movem o carrinho, IA aproxima e reiniciar zera o placar', async () =
   states = [];
   physics = await createPhysics(ball, cars, { forward: false, reverse: false, left: false, right: false }, (state) => states.push(state), 'easy', 1, () => true);
   const send = (type: string, code: string) => handlers.get(type)?.({ code, altKey: false, ctrlKey: false, metaKey: false, preventDefault() {} });
-  send('keydown', 'ArrowUp');
-  for (let i = 0; i < 120; i++) physics?.update(1 / 60, () => {});
-  send('keyup', 'ArrowUp');
-  expect(cars[0].position.x).toBeGreaterThan(-15);
   send('keydown', 'ArrowLeft');
   for (let i = 0; i < 30; i++) physics?.update(1 / 60, () => {});
   send('keyup', 'ArrowLeft');
   expect(Math.abs(cars[0].rotation.y + Math.PI / 2)).toBeGreaterThan(0.1);
+  send('keydown', 'ArrowUp');
+  for (let i = 0; i < 120; i++) physics?.update(1 / 60, () => {});
+  send('keyup', 'ArrowUp');
+  expect(Math.hypot(cars[0].position.x + 18, cars[0].position.z)).toBeGreaterThan(2);
   for (let i = 0; i < 300; i++) physics.update(1 / 60, () => {});
   expect(Math.hypot(cars[1].position.x - 18, cars[1].position.z)).toBeGreaterThan(1);
+  expect(Math.abs(cars[1].position.x)).toBeLessThanOrEqual(FIELD.goalBackX - CAR.radius);
+  expect(Math.abs(cars[1].position.z)).toBeLessThanOrEqual(FIELD.sideWallZ - CAR.radius);
+  expect(Math.abs(ball.position.x)).toBeLessThanOrEqual(FIELD.goalBackX - BALL.radius);
+  expect(Math.abs(ball.position.z)).toBeLessThanOrEqual(FIELD.sideWallZ - BALL.radius);
   physics.restart();
   expect([states.at(-1)?.red, states.at(-1)?.blue, states.at(-1)?.finished]).toEqual([0, 0, false]);
   physics.dispose(); physics = undefined;

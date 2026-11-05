@@ -5,6 +5,7 @@ import { createStuckMonitor } from './stuck-monitor';
 import { AI, BALL, CAR, FIELD, MATCH, SIMULATION } from './config';
 import { createKeyboardInput, type DriveInput } from './input';
 import { getLateralRecoveryImpulse } from './vehicle-dynamics';
+import { containPlanarBody } from './arena-boundaries';
 
 const { fixedStep: STEP, maxFrameDelta } = SIMULATION;
 const CAR_HEIGHT = CAR.halfHeight + CAR.bodyOffset;
@@ -101,7 +102,9 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
         const directionX = -Math.sin(heading);
         const directionZ = -Math.cos(heading);
         const speed = velocity.x * directionX + velocity.z * directionZ;
-        const steeringScale = THREE.MathUtils.clamp(Math.abs(speed) / CAR.steeringReferenceSpeed, 0, 1);
+        const steeringScale = turn
+          ? 0.35 + 0.65 * THREE.MathUtils.clamp(Math.abs(speed) / CAR.steeringReferenceSpeed, 0, 1)
+          : 0;
         heading += turn * CAR.steeringRate * steeringScale * STEP * (speed < -CAR.reverseSteeringThreshold ? -1 : 1);
         car.setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), heading), true);
         const nextDirectionX = -Math.sin(heading);
@@ -213,6 +216,38 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           const angle = index === AI.playerIndex ? heading : aiHeadings[index];
           const impulse = getLateralRecoveryImpulse(velocity.x, velocity.z, angle, CAR.mass, CAR.impactRecoveryGrip);
           body.applyImpulse({ x: impulse.x, y: 0, z: impulse.z }, true);
+        });
+        const positionBeforeBounds = ballBody.translation();
+        const velocityBeforeBounds = ballBody.linvel();
+        const boundedBall = containPlanarBody(
+          positionBeforeBounds.x,
+          positionBeforeBounds.z,
+          velocityBeforeBounds.x,
+          velocityBeforeBounds.z,
+          FIELD.goalBackX - BALL.radius,
+          FIELD.sideWallZ - BALL.radius,
+          BALL.restitution,
+        );
+        if (boundedBall.x !== positionBeforeBounds.x || boundedBall.z !== positionBeforeBounds.z) {
+          ballBody.setTranslation({ x: boundedBall.x, y: positionBeforeBounds.y, z: boundedBall.z }, true);
+          ballBody.setLinvel({ x: boundedBall.velocityX, y: velocityBeforeBounds.y, z: boundedBall.velocityZ }, true);
+        }
+        carBodies.forEach((body) => {
+          const position = body.translation();
+          const velocity = body.linvel();
+          const bounded = containPlanarBody(
+            position.x,
+            position.z,
+            velocity.x,
+            velocity.z,
+            FIELD.goalBackX - CAR.radius,
+            FIELD.sideWallZ - CAR.radius,
+            CAR.restitution,
+          );
+          if (bounded.x !== position.x || bounded.z !== position.z) {
+            body.setTranslation({ x: bounded.x, y: position.y, z: bounded.z }, true);
+            body.setLinvel({ x: bounded.velocityX, y: velocity.y, z: bounded.velocityZ }, true);
+          }
         });
         const ballPosition = ballBody.translation();
         const scoringSide = getScoringSide(ballPosition);
