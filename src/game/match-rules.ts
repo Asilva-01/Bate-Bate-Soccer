@@ -28,17 +28,24 @@ export function awardGoal(state: ScoreState, team: ScoringSide, round: number): 
   const redCars = team === 'red' && round >= AI.allyUnlockRound ? AI.playerCarsWithAlly : team === 'blue' ? MATCH.startingCars : state.redCars;
   const blueCars = opponentCars(round);
   const finished = red >= MATCH.goalsToWin || blue >= MATCH.goalsToWin;
+  const scoreDiff = red - blue;
   const message = finished
-    ? team === 'red' ? 'Vitória! Você venceu a partida.' : 'Fim de jogo. O azul venceu.'
-    : team === 'red' ? round >= 2 ? 'GOL VERMELHO! Reforço liberado.' : 'GOL VERMELHO! Reforço disponível a partir da rodada 2.'
-      : 'GOL AZUL! Você perdeu o reforço.';
+    ? team === 'red' ? scoreDiff === 3 ? 'Vitória impecável! 3 a 0!' : scoreDiff === 2 ? 'Vitória sólida! Próxima rodada.' : 'Vitória apertada! Continue assim.' : 'Derrota. O azul dominou. Tente novamente!'
+    : team === 'red' ? round >= 2 ? red === 2 ? 'GOLAÇO! Falta 1 para a vitória!' : 'GOL VERMELHO! Aliado em campo.' : red === 2 ? 'MAIS UM! Vitória à vista!' : 'GOL! Reforço disponível na rodada 2.'
+      : blue === 2 ? 'GOL AZUL! Eles estão perto da vitória!' : 'GOL AZUL! Reforço perdido.';
   return { ...state, red, blue, redCars, blueCars, finished, message };
 }
 
-export function selectAttacker(cars: readonly GoalBallPosition[], predictedBall: GoalBallPosition) {
+export function selectAttacker(cars: readonly GoalBallPosition[], predictedBall: GoalBallPosition, goalX: number) {
   if (cars.length === 0) return -1;
-  return cars.reduce((closestIndex, car, index) => {
-    const closest = cars[closestIndex];
-    return Math.hypot(car.x - predictedBall.x, car.z - predictedBall.z) < Math.hypot(closest.x - predictedBall.x, closest.z - predictedBall.z) ? index : closestIndex;
+  return cars.reduce((bestIndex, car, index) => {
+    const best = cars[bestIndex];
+    const distanceToBall = Math.hypot(car.x - predictedBall.x, car.z - predictedBall.z);
+    const bestDistanceToBall = Math.hypot(best.x - predictedBall.x, best.z - predictedBall.z);
+    const towardGoal = (goalX - car.x) * (predictedBall.x - car.x) + (0 - car.z) * (predictedBall.z - car.z);
+    const bestTowardGoal = (goalX - best.x) * (predictedBall.x - best.x) + (0 - best.z) * (predictedBall.z - best.z);
+    const score = distanceToBall - (towardGoal > 0 ? 2 : 0);
+    const bestScore = bestDistanceToBall - (bestTowardGoal > 0 ? 2 : 0);
+    return score < bestScore ? index : bestIndex;
   }, 0);
 }

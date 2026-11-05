@@ -28,10 +28,10 @@ test('gol exige a bola inteira dentro da abertura e da profundidade da trave', (
 });
 
 test('opponentSpeed preserva os valores por dificuldade e sobe ate o limite', () => {
-  expect(opponentSpeed('easy', 1)).toBe(0.8);
+  expect(opponentSpeed('easy', 1)).toBe(0.75);
   expect(opponentSpeed('medium', 1)).toBe(0.95);
-  expect(opponentSpeed('hard', 1)).toBe(1.1);
-  expect(opponentSpeed('easy', 10)).toBe(1.5);
+  expect(opponentSpeed('hard', 1)).toBe(1.15);
+  expect(opponentSpeed('easy', 10)).toBe(1.4);
 });
 
 test('opponentCars cresce a cada duas rodadas e respeita o limite', () => {
@@ -39,8 +39,8 @@ test('opponentCars cresce a cada duas rodadas e respeita o limite', () => {
 });
 
 test('dificuldade e selecao de atacante progridem', () => {
-  expect(selectAttacker([{ x: 12, y: 0, z: 0 }, { x: 2, y: 0, z: 1 }], { x: 0, y: 0, z: 0 })).toBe(1);
-  expect(selectAttacker([], { x: 0, y: 0, z: 0 })).toBe(-1);
+  expect(selectAttacker([{ x: 12, y: 0, z: 0 }, { x: 2, y: 0, z: 1 }], { x: 0, y: 0, z: 0 }, -40)).toBe(1);
+  expect(selectAttacker([], { x: 0, y: 0, z: 0 }, -40)).toBe(-1);
 });
 
 test('placar encerra aos tres gols e libera reforco a partir da segunda rodada', () => {
