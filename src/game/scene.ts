@@ -84,13 +84,17 @@ export async function createScene(container: HTMLElement, input: DriveInput, con
       if (goalCelebrationAge >= 1) goalCelebration.visible = false;
     }
     // Keep a wide framing while gently following the play rather than the car.
-    const blend = 1 - Math.exp(-2 * delta);
-    cameraTarget.x += (THREE.MathUtils.clamp(ball.position.x * 0.08, -0.8, 0.8) - cameraTarget.x) * blend;
-    cameraTarget.z += (THREE.MathUtils.clamp(ball.position.z * 0.06, -0.4, 0.4) - cameraTarget.z) * blend;
+    const blend = 1 - Math.exp(-3 * delta);
+    cameraTarget.x += (THREE.MathUtils.clamp(ball.position.x * 0.12, -1.2, 1.2) - cameraTarget.x) * blend;
+    cameraTarget.z += (THREE.MathUtils.clamp(ball.position.z * 0.09, -0.6, 0.6) - cameraTarget.z) * blend;
     if (controls.camera === 'follow') {
       const car = carModels[0];
-      cameraTarget.lerp(car.position, blend);
-      camera.position.set(cameraTarget.x, 28, cameraTarget.z + 22);
+      const carBlend = blend * 0.6;
+      cameraTarget.x += (car.position.x - cameraTarget.x) * carBlend;
+      cameraTarget.z += (car.position.z - cameraTarget.z) * carBlend;
+      const forwardOffset = 15;
+      const angleOffset = car.rotation.y;
+      camera.position.set(cameraTarget.x - Math.sin(angleOffset) * forwardOffset, 32, cameraTarget.z - Math.cos(angleOffset) * forwardOffset + 18);
     } else if (controls.camera === 'top') {
       cameraTarget.set(0, 0, 0); camera.position.set(0, 95, 0.01);
     } else { camera.position.set(cameraTarget.x, 95, 52 + cameraTarget.z); }

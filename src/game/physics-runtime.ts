@@ -103,7 +103,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
         const directionZ = -Math.cos(heading);
         const speed = velocity.x * directionX + velocity.z * directionZ;
         const steeringScale = turn
-          ? 0.35 + 0.65 * THREE.MathUtils.clamp(Math.abs(speed) / CAR.steeringReferenceSpeed, 0, 1)
+          ? CAR.minSteeringScale + (1 - CAR.minSteeringScale) * THREE.MathUtils.clamp(Math.abs(speed) / CAR.steeringReferenceSpeed, 0, 1)
           : 0;
         heading += turn * CAR.steeringRate * steeringScale * STEP * (speed < -CAR.reverseSteeringThreshold ? -1 : 1);
         car.setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), heading), true);
@@ -141,10 +141,13 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           const sameTeamCars = activeTeamCars.filter(({ carIndex }) => index === AI.redAllyIndex ? carIndex === AI.redAllyIndex : carIndex !== AI.redAllyIndex);
           const attackerIndex = selectAttacker(sameTeamCars.map(({ body }) => {
             const carPosition = body.translation(); return { x: carPosition.x, y: carPosition.y, z: carPosition.z };
-          }), { x: predictedX, y: target.y, z: predictedZ });
+          }), { x: predictedX, y: target.y, z: predictedZ }, goalX);
           const isAttacker = sameTeamCars[attackerIndex]?.carIndex === index;
           const defendX = index === AI.redAllyIndex ? -FIELD.goalLineX + AI.defenseDepth : FIELD.goalLineX - AI.defenseDepth;
-          const approachX = THREE.MathUtils.clamp(isAttacker ? predictedX - directionX * AI.attackRange - directionZ * offset : defendX, -FIELD.goalLineX + AI.goalClampMargin, FIELD.goalLineX - AI.goalClampMargin);
+          const ballThreatX = (predictedX - defendX) * (index === AI.redAllyIndex ? -1 : 1);
+          const defenseDynamic = ballThreatX > 0 ? THREE.MathUtils.clamp(ballThreatX / (FIELD.goalLineX * 2), 0, AI.defenseDynamicFactor) : 0;
+          const defendTargetX = defendX + (predictedX - defendX) * defenseDynamic;
+          const approachX = THREE.MathUtils.clamp(isAttacker ? predictedX - directionX * AI.attackRange - directionZ * offset : defendTargetX, -FIELD.goalLineX + AI.goalClampMargin, FIELD.goalLineX - AI.goalClampMargin);
           const approachZ = THREE.MathUtils.clamp(isAttacker ? predictedZ - directionZ * AI.attackRange + directionX * offset : predictedZ * AI.defenderPositionFollowFactor + offset, -FIELD.sideWallZ + AI.wallClearance, FIELD.sideWallZ - AI.wallClearance);
           const approachDistance = Math.hypot(approachX - position.x, approachZ - position.z);
           const ballDistance = Math.hypot(predictedX - position.x, predictedZ - position.z);
@@ -163,13 +166,16 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
             state.recoveryTime = AI.recoverySeconds;
             state.blockedTime = 0;
             state.attacking = false;
+            const recoveryAngle = aiHeadings[index] + (Math.random() > 0.5 ? 1 : -1) * (AI.recoveryAngleRange / 2 + Math.random() * AI.recoveryAngleRange / 2);
+            aiHeadings[index] = recoveryAngle;
           }
           const recovering = state.recoveryTime > 0;
           state.recoveryTime = Math.max(0, state.recoveryTime - STEP);
-          aiHeadings[index] += THREE.MathUtils.clamp(difference, -AI.headingTurnRate * STEP, AI.headingTurnRate * STEP);
+          if (!recovering) aiHeadings[index] += THREE.MathUtils.clamp(difference, -AI.headingTurnRate * STEP, AI.headingTurnRate * STEP);
           opponent.setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), aiHeadings[index]), true);
           const aiCap = opponentSpeed(difficulty, round) * AI.speedMultiplier;
-          const aiForward = isAttacker ? aiCap : aiCap * AI.defenderSpeedFactor;
+          const aggressionFactor = isAttacker ? AI.difficultyAggression[difficulty] : 1;
+          const aiForward = isAttacker ? aiCap * aggressionFactor : aiCap * AI.defenderSpeedFactor;
           const steeringFactor = THREE.MathUtils.clamp(1 - Math.abs(difference) / Math.PI, AI.minSteeringFactor, 1);
           const recoveryDirection = recovering ? -1 : 1;
           const recoverySpeed = recovering ? aiCap * 0.55 : aiForward;
