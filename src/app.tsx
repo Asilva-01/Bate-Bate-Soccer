@@ -3,8 +3,9 @@ import type { BallIndicator, GameControls } from './game/scene';
 import type { MatchState } from './game/physics';
 import type { Difficulty } from './game/match-rules';
 import type { CameraMode, CameraPreset } from './game/chase-camera';
-import { createControlFrame } from './game/input';
+import { createControlFrame, readGamepadMapping } from './game/input';
 import { clampStickBase, followBase, normalizeStick, stickToDrive, type Point } from './game/touch-stick';
+import { hitActionCluster, type ClusterHit } from './game/action-cluster';
 import { CAMERA, KICK, TOUCH } from './game/config';
 
 type AudioPlayer = ReturnType<typeof import('./game/audio').createAudio>;
@@ -54,6 +55,10 @@ export default function App() {
   const stickBase = useRef<HTMLDivElement>(null);
   const stickKnob = useRef<HTMLDivElement>(null);
   const stick = useRef({ ...IDLE_STICK });
+  const clusterZone = useRef<HTMLDivElement>(null);
+  const turboButton = useRef<HTMLButtonElement>(null);
+  const kickButton = useRef<HTMLButtonElement>(null);
+  const cluster = useRef({ pointerId: -1, hit: null as ClusterHit });
   const indicator = useRef<HTMLDivElement>(null);
   const indicatorArrow = useRef<HTMLSpanElement>(null);
   const indicatorLabel = useRef<HTMLSpanElement>(null);
@@ -94,12 +99,17 @@ export default function App() {
     resetTiming: () => {},
     sound: (kind) => audio.current?.sound(kind),
     indicator: showIndicator,
+    onTurboFrame: () => {},
   });
 
   const resetStick = useCallback(() => {
     stick.current = { ...IDLE_STICK };
     input.current.throttle = 0;
     input.current.steer = 0;
+    input.current.boost = false;
+    cluster.current = { pointerId: -1, hit: null };
+    turboButton.current?.classList.remove('is-pressed');
+    kickButton.current?.classList.remove('is-pressed');
     stickZone.current?.classList.remove('stick-zone--active');
   }, []);
   const focusGame = useCallback(() => {
@@ -116,6 +126,15 @@ export default function App() {
     setPaused(nextPaused);
     if (!nextPaused) focusGame();
   }, [resetStick, focusGame, match.finished, menu]);
+  useEffect(() => {
+    controls.current.onTurboFrame = ({ meter, active }) => {
+      const el = turboButton.current;
+      if (!el) return;
+      el.style.setProperty('--turbo', meter.toFixed(1));
+      el.classList.toggle('is-active', active);
+    };
+  }, []);
+  const previousPad = useRef({ pause: false, cam: false });
   const togglePause = () => changePaused(!paused);
   const changeBallCam = useCallback((value: CameraMode) => {
     controls.current.cameraMode = value;
@@ -129,6 +148,22 @@ export default function App() {
   const toggleBallCam = useCallback(() => {
     changeBallCam(controls.current.cameraMode === 'ball' ? 'car' : 'ball');
   }, [changeBallCam]);
+  useEffect(() => {
+    let frame = 0;
+    const poll = () => {
+      const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
+      let pad: Gamepad | null = null;
+      for (let i = 0; i < pads.length; i++) if (pads[i]) { pad = pads[i]; break; }
+      const mapped = readGamepadMapping(pad);
+      if (mapped.pause && !previousPad.current.pause) togglePause();
+      if (mapped.ballCam && !previousPad.current.cam) toggleBallCam();
+      previousPad.current.pause = mapped.pause;
+      previousPad.current.cam = mapped.ballCam;
+      frame = requestAnimationFrame(poll);
+    };
+    frame = requestAnimationFrame(poll);
+    return () => cancelAnimationFrame(frame);
+  }, [togglePause, toggleBallCam]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -250,9 +285,49 @@ export default function App() {
   const stickUp = (event: PointerEvent<HTMLDivElement>) => {
     if (stick.current.pointerId === event.pointerId) resetStick();
   };
-  const kickDown = (event: PointerEvent<HTMLButtonElement>) => {
+  const clusterCircles = () => {
+    const zone = clusterZone.current;
+    const boostEl = turboButton.current;
+    const kickEl = kickButton.current;
+    if (!zone || !boostEl || !kickEl) return null;
+    const zoneRect = zone.getBoundingClientRect();
+    const boostRect = boostEl.getBoundingClientRect();
+    const kickRect = kickEl.getBoundingClientRect();
+    return {
+      boost: { x: boostRect.left + boostRect.width / 2 - zoneRect.left, y: boostRect.top + boostRect.height / 2 - zoneRect.top, r: boostRect.width / 2 },
+      kick: { x: kickRect.left + kickRect.width / 2 - zoneRect.left, y: kickRect.top + kickRect.height / 2 - zoneRect.top, r: kickRect.width / 2 },
+    };
+  };
+  const applyClusterHit = (hit: ClusterHit) => {
+    const previous = cluster.current.hit;
+    input.current.boost = hit === 'boost' || hit === 'both';
+    if ((hit === 'kick' || hit === 'both') && previous !== 'kick' && previous !== 'both') input.current.kickPresses += 1;
+    cluster.current.hit = hit;
+    turboButton.current?.classList.toggle('is-pressed', input.current.boost);
+    kickButton.current?.classList.toggle('is-pressed', hit === 'kick' || hit === 'both');
+  };
+  const clusterDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (cluster.current.pointerId !== -1) return;
     event.preventDefault();
-    input.current.kickPresses += 1;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    cluster.current.pointerId = event.pointerId;
+    const circles = clusterCircles();
+    if (!circles) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    applyClusterHit(hitActionCluster(event.clientX - rect.left, event.clientY - rect.top, circles.boost, circles.kick, TOUCH.dualPressSlackPx));
+  };
+  const clusterMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (cluster.current.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const circles = clusterCircles();
+    if (!circles) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    applyClusterHit(hitActionCluster(event.clientX - rect.left, event.clientY - rect.top, circles.boost, circles.kick, TOUCH.dualPressSlackPx));
+  };
+  const clusterUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (cluster.current.pointerId !== event.pointerId) return;
+    cluster.current.pointerId = -1;
+    applyClusterHit(null);
   };
 
   const enterFullscreen = () => {
@@ -302,12 +377,12 @@ export default function App() {
   };
   const soundLabel = sound ? '♫ SOM LIGADO' : audioReady ? '♫ LIGAR SOM' : 'CARREGANDO SOM…';
   const levelLabel = difficulty === 'easy' ? 'FÁCIL' : difficulty === 'medium' ? 'MÉDIO' : 'DIFÍCIL';
-  const shellStyle = { ['--stick-radius' as string]: `${TOUCH.stick.radiusPx}px`, ['--primary-button' as string]: `${TOUCH.primaryButtonPx}px`, ['--small-button' as string]: `${TOUCH.smallButtonPx}px`, ['--hud-height' as string]: `${TOUCH.hudHeightPx}px`, ['--edge-margin' as string]: `${TOUCH.edgeMarginPx}px`, ['--stick-zone-width' as string]: `${TOUCH.stick.zoneWidthFraction * 100}%` };
+  const shellStyle = { ['--stick-radius' as string]: `${TOUCH.stick.radiusPx}px`, ['--primary-button' as string]: `${TOUCH.primaryButtonPx}px`, ['--secondary-button' as string]: `${TOUCH.secondaryButtonPx}px`, ['--small-button' as string]: `${TOUCH.smallButtonPx}px`, ['--hud-height' as string]: `${TOUCH.hudHeightPx}px`, ['--edge-margin' as string]: `${TOUCH.edgeMarginPx}px`, ['--stick-zone-width' as string]: `${TOUCH.stick.zoneWidthFraction * 100}%` };
 
   return <main className={`app${playing ? ' app--playing' : ''}`}>
     <header className="topbar" inert={playing}><a className="brand" href="#inicio"><span className="brand-icon" aria-hidden="true">★</span><span>BATE-BATE <strong>SOCCER</strong></span></a><span className="top-tag">FUTEBOL DE CARRINHO · PARTIDA RÁPIDA</span></header>
     <section className="game" id="inicio" aria-labelledby="title">
-      <div className="game-heading" inert={playing}><div><p className="eyebrow">ENTRE EM CAMPO</p><h1 id="title">É HORA DO <span>JOGO.</span></h1></div><p className="game-hint"><strong>PRIMEIRO A MARCAR 3 VENCE</strong><br /><span className="keyboard-control-hint">Use W A S D ou as setas para jogar</span><span className="touch-control-hint">Joystick à esquerda, TOQUE à direita</span></p></div>
+      <div className="game-heading" inert={playing}><div><p className="eyebrow">ENTRE EM CAMPO</p><h1 id="title">É HORA DO <span>JOGO.</span></h1></div><p className="game-hint"><strong>PRIMEIRO A MARCAR 3 VENCE</strong><br /><span className="keyboard-control-hint">Use W A S D ou as setas para jogar</span><span className="touch-control-hint">Joystick à esquerda, TURBO e TOQUE à direita</span></p></div>
       <div ref={shell} className={`scene-frame${playing ? ' scene-frame--playing' : ''}`} style={shellStyle} onContextMenu={(event) => { if (playing) event.preventDefault(); }}>
         <div ref={container} className="scene" tabIndex={-1} role="img" aria-label="Campo de futebol 3D visto de trás do carrinho vermelho. Faça gols na trave azul." />
         {error && <p className="scene-error" role="alert">Não foi possível carregar o jogo. Confira sua conexão e tente recarregar a página.</p>}
@@ -345,20 +420,31 @@ export default function App() {
             onPointerCancel={stickUp}
             onLostPointerCapture={stickUp}
           ><div ref={stickBase} className="stick-base"><div ref={stickKnob} className="stick-knob" /></div></div>
-          <button
-            className={`kick-button${kickCooldown ? ' kick-button--cooldown' : ''}`}
-            type="button"
-            tabIndex={-1}
-            aria-label="Tocar na bola"
-            aria-keyshortcuts="Space K"
-            style={{ ['--kick-cooldown' as string]: `${KICK.cooldownSeconds}s` }}
-            onPointerDown={kickDown}
-          >TOQUE</button>
+          <div
+            ref={clusterZone}
+            className="action-cluster"
+            onPointerDown={clusterDown}
+            onPointerMove={clusterMove}
+            onPointerUp={clusterUp}
+            onPointerCancel={clusterUp}
+            onLostPointerCapture={clusterUp}
+          >
+            <button ref={turboButton} className="turbo-button" type="button" tabIndex={-1} aria-label="Turbo" aria-keyshortcuts="Shift L">TURBO</button>
+            <button
+              ref={kickButton}
+              className={`kick-button${kickCooldown ? ' kick-button--cooldown' : ''}`}
+              type="button"
+              tabIndex={-1}
+              aria-label="Tocar na bola"
+              aria-keyshortcuts="Space K"
+              style={{ ['--kick-cooldown' as string]: `${KICK.cooldownSeconds}s` }}
+            >TOQUE</button>
+          </div>
         </div>}
         {rotateBlocked && <div className="rotate-notice" role="alert"><span className="rotate-icon" aria-hidden="true">⟳</span><strong>Gire o celular para jogar</strong><small>A partida só funciona com o celular deitado.</small><button type="button" onClick={openMenu}>VOLTAR AO MENU</button></div>}
       </div>
       <div className="game-tools" inert={playing}><button className="sound-toggle" type="button" aria-pressed={sound} disabled={!audioReady} onClick={toggleSound}>{soundLabel}</button></div>
-      <div className="match-notes" inert={playing}><p className="rules">ALIADO DISPONÍVEL AO MARCAR A PARTIR DA RODADA 2 · TOQUE COM ESPAÇO, K OU BOTÃO TOQUE · C CÂMERA DA BOLA · P OU ESC PAUSA</p><p className="keyboard-shortcuts"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> PILOTAR <kbd>Espaço</kbd> TOQUE <kbd>C</kbd> BOLA</p></div>{audioError && <p role="alert" className="audio-error">Não foi possível carregar o áudio. O jogo pode continuar sem som; tente recarregar a página.</p>}
+      <div className="match-notes" inert={playing}><p className="rules">ALIADO DISPONÍVEL AO MARCAR A PARTIR DA RODADA 2 · TOQUE COM ESPAÇO, K OU BOTÃO TOQUE · SHIFT OU L TURBO · C CÂMERA DA BOLA · P OU ESC PAUSA</p><p className="keyboard-shortcuts"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> PILOTAR <kbd>Shift</kbd> TURBO <kbd>Espaço</kbd> TOQUE <kbd>C</kbd> BOLA</p></div>{audioError && <p role="alert" className="audio-error">Não foi possível carregar o áudio. O jogo pode continuar sem som; tente recarregar a página.</p>}
     </section>
   </main>;
 }

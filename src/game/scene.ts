@@ -3,7 +3,7 @@ import { createArena } from './arena';
 import { createBall, createCar } from './objects';
 import { createPhysics, type ControlFrame, type MatchState, type KickEvent } from './physics';
 import type { Difficulty } from './match-rules';
-import { BALL, CAMERA, CAR, DEBUG, RENDER } from './config';
+import { BALL, CAMERA, CAR, DEBUG, RENDER, SAFETY, TURBO } from './config';
 import { createArenaDimensions } from './arena-dimensions';
 import { isInKickZone } from './kick';
 import { createChaseRig, offscreenIndicator, stepChaseCamera, type CameraMode, type CameraPreset, type CameraStep, type CameraTarget, type IndicatorPosition, type ScreenInsets } from './chase-camera';
@@ -19,6 +19,7 @@ export type GameControls = {
   resetTiming: () => void;
   sound: (kind: 'hit' | 'goal' | 'kick') => void;
   indicator: (state: BallIndicator | null) => void;
+  onTurboFrame: (info: { meter: number; active: boolean }) => void;
 };
 
 function readSafeInsets(probe: HTMLElement): ScreenInsets {
@@ -151,6 +152,7 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
   if (debugPanel) { debugPanel.className = 'debug-panel'; container.appendChild(debugPanel); }
   let lastDebugUpdate = 0;
   let lastFrameTime = performance.now();
+  let lastTurbo = physics.playerTurbo();
   const updateDebugPanel = (now: number) => {
     if (!debugPanel || now - lastDebugUpdate < DEBUG.refreshMs) return;
     lastDebugUpdate = now;
@@ -161,6 +163,9 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
       `physics.update ${physicsMonitor.averageMs().toFixed(2)} ms`,
       `rede de segurança ${stats.safetyNetActivations} · bola presa ${stats.stuckResets}`,
       `toques na bola ${stats.playerBallTouches} · chutes ao gol ${stats.playerShotsOnGoal}`,
+      `turbo ${lastTurbo.meter.toFixed(0)} ${lastTurbo.active ? 'ON' : 'off'} · chão ${lastTurbo.grounded ? 'sim' : 'não'}`,
+      `CAR.maxSpeed ${CAR.maxSpeed} · boostMax ${CAR.boostMaxSpeed} · SAFETY.tol ${SAFETY.tolerance}`,
+      `TURBO start ${TURBO.start} drain ${TURBO.drainPerSecond}/s regen ${TURBO.regenPerSecond}/s min ${TURBO.minToStart}`,
     ].join('\n');
   };
   const animate = (now: number) => {
@@ -174,6 +179,10 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
       physics.update(delta, hit, kick);
       physicsMonitor.push(performance.now() - frameTime);
     }
+    lastTurbo = physics.playerTurbo();
+    cameraSubject.boosting = lastTurbo.active;
+    controls.onTurboFrame(lastTurbo);
+    if (lastTurbo.emptyPulse && typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate?.(10);
     if (goalCelebrationAge < 1) {
       goalCelebrationAge = Math.min(1, goalCelebrationAge + delta * 1.4);
       const progress = goalCelebrationAge;

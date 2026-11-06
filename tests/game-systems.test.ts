@@ -4,7 +4,6 @@ import { BALL, CAR } from '../src/game/config.ts';
 import { createPhysics } from '../src/game/physics-runtime.ts';
 import { awardGoal, getScoringSide, opponentCars, opponentSpeed, selectAttacker } from '../src/game/match-rules.ts';
 import { createStuckMonitor } from '../src/game/stuck-monitor.ts';
-import { getLateralRecoveryImpulse } from '../src/game/vehicle-dynamics.ts';
 import { containPlanarBody, containSpatialBody } from '../src/game/arena-boundaries.ts';
 import { createArenaDimensions } from '../src/game/arena-dimensions.ts';
 import { createControlFrame } from '../src/game/input.ts';
@@ -80,13 +79,6 @@ test('bola imprensada entre os dois times dispara depois de 2,5 s', () => {
   for (let i = 0; i < 200; i++) {
     expect(monitor.updatePinch({ x: 0, z: 0, speed: 0.2 }, [{ x: 1, z: 0, team: 'red' }], 1 / 60)).toBe(false);
   }
-});
-
-test('recuperacao apos impacto reduz derrapagem sem frear o movimento para frente', () => {
-  const lateral = getLateralRecoveryImpulse(4, 0, 0, CAR.mass, CAR.impactRecoveryGrip);
-  const forward = getLateralRecoveryImpulse(0, 4, 0, CAR.mass, CAR.impactRecoveryGrip);
-  expect(4 * lateral.x).toBeLessThan(0);
-  expect(Math.hypot(forward.x, forward.z)).toBe(0);
 });
 
 test('limites do campo mantem corpos dentro e rebate a velocidade para dentro', () => {

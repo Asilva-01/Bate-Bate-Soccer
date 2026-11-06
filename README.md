@@ -13,13 +13,15 @@ Teclado (o jogo mostra a câmera atrás do carrinho):
 - **W/S** ou **setas para cima/baixo**: acelerar e dar ré (a entrada sobe em rampa, sem tranco).
 - **A/D** ou **setas para esquerda/direita**: virar.
 - **Espaço** ou **K**: TOQUE na bola (o chute atual), quando ela estiver na frente do carrinho.
+- **Shift** ou **L**: TURBO (só para a frente; o medidor recarrega sozinho).
 - **C**: alternar a câmera da bola (ball cam). A escolha fica salva no navegador.
 - **P** ou **Escape**: pausar/continuar (no menu de pausa também se escolhe a câmera).
+- **Gamepad** (mapeamento *standard*): RT/LT acelerar e ré, analógico esquerdo virar, B ou X turbo, A toque, Y câmera da bola, Start pausa.
 
 Celular (jogue **deitado**; em retrato a partida pausa e pede para girar o aparelho):
 
 - **Joystick flutuante** na metade esquerda da tela: ele nasce onde o polegar toca. Empurrar para a frente acelera (a intensidade é o acelerador, a distância até ~85% do raio é o máximo), para os lados faz a curva e puxar para trás dá ré.
-- **TOQUE** no canto inferior direito: o chute atual do jogo.
+- **TURBO** e **TOQUE** no canto inferior direito: um polegar desliza entre os dois; na costura os dois apertam juntos. O anel do TURBO é o medidor.
 - **BOLA** no canto superior direito: liga ou desliga a câmera da bola.
 - Ao tocar em **ENTRAR EM CAMPO**, a partida abre em tela cheia (Android) ou cobre a tela toda (iPhone, que não tem a Fullscreen API). Para esconder a barra do Safari, use "Adicionar à Tela de Início".
 - Uma seta amarela na borda da tela indica a bola quando ela sai do campo de visão, com a distância em metros quando passa de 20.
@@ -28,7 +30,7 @@ Celular (jogue **deitado**; em retrato a partida pausa e pede para girar o apare
 
 - No menu de pausa, escolha a câmera **Perto** (padrão, atrás do carrinho) ou **Alta** (visão 3/4, mais ampla). Durante a partida, o botão **BOLA** (ou a tecla **C**) liga a câmera da bola. As duas escolhas ficam salvas no navegador.
 - Clique em **Ligar som** para ativar trilha sintetizada inspirada em rock e efeitos de colisão e gol. O áudio começa após a interação do jogador.
-- Abra o jogo com `?debug=1` na URL para ver o painel de desempenho: FPS (média de 60 quadros e p95), draw calls, triângulos, `pixelRatio`, tempo de `physics.update`, atuações da rede de segurança, reinícios por bola presa, toques na bola e chutes ao gol.
+- Abra o jogo com `?debug=1` na URL para ver o painel de desempenho: FPS (média de 60 quadros e p95), draw calls, triângulos, `pixelRatio`, tempo de `physics.update`, atuações da rede de segurança, reinícios por bola presa, toques na bola, chutes ao gol, turbo, se o carro está no chão e os knobs `CAR.maxSpeed` / `SAFETY.tolerance`.
 
 ## Executar localmente
 
@@ -51,12 +53,16 @@ O workflow em `.github/workflows/pages.yml` gera e publica o jogo quando há um 
 - `src/game/arena-dimensions.ts`: dimensões derivadas e invariantes da arena.
 - `src/game/physics-world.ts`: colliders estáticos e grupos de colisão.
 - `src/game/objects.ts`: modelos da bola (1 draw call) e dos carrinhos.
-- `src/game/physics-runtime.ts`: simulação física, controles de jogador, lógica de IA (atacantes/defensores), poses anterior e atual para interpolação, detecção de gols e recuperação após impactos.
+- `src/game/physics-runtime.ts`: orquestra o passo fixo (entrada, IA, `stepVehicle`, chute, limites, gols) e interpola poses.
+- `src/game/vehicle-controller.ts`: controlador único do jogador e da IA (`stepVehicle`, `isGrounded`).
+- `src/game/turbo.ts`: medidor de turbo.
+- `src/game/controls.ts`: `ControlFrame` → `DriveCommand`.
+- `src/game/action-cluster.ts`: acerto do cluster TURBO/TOQUE, com faixa de costura.
+- `src/game/rng.ts`: gerador com semente (mulberry32) para a IA.
 - `src/game/kick.ts`: zona de chute, força, recarga e impulso (jogador e IA).
-- `src/game/vehicle-dynamics.ts`: respostas de acelerador, freio e inércia, direção analógica e correção de derrapagem lateral.
 - `src/game/chase-camera.ts`: câmera de perseguição (presets `perto`/`alta`, FOV, assistência de bola, ball cam, `clampCameraToArena`) e indicador de bola fora da tela.
 - `src/game/touch-stick.ts`: matemática do joystick flutuante (zona morta, ré, base que segue o dedo).
-- `src/game/input.ts`: `ControlFrame` analógico e teclado com rampa.
+- `src/game/input.ts`: `ControlFrame` analógico, teclado com rampa (incluindo Shift/L) e gamepad.
 - `src/game/render-interpolation.ts`: interpolação das poses entre passos de física.
 - `src/game/perf-monitor.ts`: média móvel de FPS e p95 para o painel `?debug=1`.
 - `src/game/scene.ts`: câmera em perspectiva, iluminação, renderização, indicador de bola e painel de depuração.

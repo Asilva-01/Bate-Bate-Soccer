@@ -18,15 +18,15 @@ export function ballSafetyBounds(
 
 export function carSafetyBounds(
   dims: ArenaDimensions,
-  car: { radius: number; halfHeight: number; bodyOffset: number } = CAR,
+  car: { radius: number; halfHeight: number; hitbox: { halfWidth: number; halfHeight: number; halfLength: number } } = CAR,
   tolerance = SAFETY.tolerance,
 ): SafetyBounds {
-  const carHeight = car.halfHeight + car.bodyOffset;
+  const planar = Math.max(car.hitbox.halfWidth, car.hitbox.halfLength);
   return {
-    maxX: dims.goalBackX - car.radius + tolerance,
-    maxZ: dims.sideWallZ - car.radius + tolerance,
-    minY: carHeight - tolerance,
-    maxY: dims.ceilingY - car.halfHeight + tolerance,
+    maxX: dims.goalBackX - planar + tolerance,
+    maxZ: dims.sideWallZ - planar + tolerance,
+    minY: car.hitbox.halfHeight - tolerance,
+    maxY: dims.ceilingY - car.hitbox.halfHeight + tolerance,
   };
 }
 

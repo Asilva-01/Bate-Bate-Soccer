@@ -3,18 +3,16 @@ import { BALL, CAR } from './config';
 import { ballSafetyBounds, carSafetyBounds, containWithSafetyBounds } from './arena-boundaries';
 import type { ArenaDimensions } from './arena-dimensions';
 import { setVec3, type Vec3 } from './math';
-import { getLateralRecoveryImpulse } from './vehicle-dynamics';
 
 const linvel = { x: 0, y: 0, z: 0 };
 const translation = { x: 0, y: 0, z: 0 };
-const recoveryImpulse = { x: 0, y: 0, z: 0 };
 
 export function clampBodySpeeds(carBodies: RAPIER.RigidBody[], ballBody: RAPIER.RigidBody) {
   for (const body of carBodies) {
     const velocity = body.linvel();
     const speed = Math.hypot(velocity.x, velocity.z);
-    if (speed > CAR.maxSpeed && speed > 0) {
-      const scale = CAR.maxSpeed / speed;
+    if (speed > CAR.boostMaxSpeed && speed > 0) {
+      const scale = CAR.boostMaxSpeed / speed;
       body.setLinvel(setVec3(linvel, velocity.x * scale, velocity.y, velocity.z * scale), true);
     }
   }
@@ -25,22 +23,6 @@ export function clampBodySpeeds(carBodies: RAPIER.RigidBody[], ballBody: RAPIER.
       const scale = BALL.maxSpeed / speed;
       ballBody.setLinvel(setVec3(linvel, velocity.x * scale, velocity.y * scale, velocity.z * scale), true);
     }
-  }
-}
-
-export function applyImpactRecovery(
-  carBodies: RAPIER.RigidBody[],
-  headings: readonly number[],
-  impactRecovery: Float32Array,
-  dt: number,
-) {
-  for (let index = 0; index < carBodies.length; index++) {
-    if (impactRecovery[index] <= 0) continue;
-    impactRecovery[index] = Math.max(0, impactRecovery[index] - dt);
-    const velocity = carBodies[index].linvel();
-    const impulse = getLateralRecoveryImpulse(velocity.x, velocity.z, headings[index], CAR.mass, CAR.impactRecoveryGrip);
-    setVec3(recoveryImpulse, impulse.x, 0, impulse.z);
-    carBodies[index].applyImpulse(recoveryImpulse, true);
   }
 }
 

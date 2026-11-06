@@ -1,8 +1,9 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { AI } from './config';
-import { clamp, setVec3, yawQuaternion, type Quat, type Vec3 } from './math';
-import { opponentSpeed, selectAttacker, type Difficulty } from './match-rules';
+import { AI, CAR } from './config';
+import { clamp, setVec3, type Quat, type Vec3 } from './math';
+import { selectAttacker, type Difficulty } from './match-rules';
 import type { ArenaDimensions } from './arena-dimensions';
+import type { DriveCommand } from './controls';
 import type { Rng } from './rng';
 
 export type AiOpponentState = { blockedTime: number; recoveryTime: number; attacking: boolean };
@@ -57,7 +58,9 @@ function fillTeamPositions(team: CarSlot[], pool: Vec3[], out: Vec3[]) {
   }
 }
 
-/** IA atual: persegue o alvo que já calcula e aplica `setLinvel`. RNG injetável; listas reutilizadas. */
+const IDLE_COMMAND: DriveCommand = { throttle: 0, steer: 0, boost: false, kick: false };
+
+/** IA atual: persegue o alvo que já calcula e devolve `DriveCommand`, sem `setLinvel`. */
 export function applyAiControl(
   carBodies: RAPIER.RigidBody[],
   ballBody: RAPIER.RigidBody,
@@ -66,8 +69,9 @@ export function applyAiControl(
   aiHeadings: number[],
   opponents: AiOpponentState[],
   isActiveAttacker: boolean[],
+  commands: DriveCommand[],
   difficulty: Difficulty,
-  round: number,
+  _round: number,
   dt: number,
   rng: Rng,
   scratch: AiScratch,
@@ -92,6 +96,7 @@ export function applyAiControl(
 
   for (let index = 1; index < carBodies.length; index++) {
     isActiveAttacker[index] = false;
+    commands[index] = IDLE_COMMAND;
     if (!enabled(index)) continue;
     const opponent = carBodies[index];
     const opponentState = opponents[index];
@@ -140,17 +145,12 @@ export function applyAiControl(
     }
     const recovering = opponentState.recoveryTime > 0;
     opponentState.recoveryTime = Math.max(0, opponentState.recoveryTime - dt);
-    if (!recovering) aiHeadings[index] += clamp(difference, -AI.headingTurnRate * dt, AI.headingTurnRate * dt);
-    opponent.setRotation(yawQuaternion(aiHeadings[index], scratch.rotation), true);
-    const aiCap = opponentSpeed(difficulty, round) * AI.speedMultiplier;
-    const aggressionFactor = isAttacker ? AI.difficultyAggression[difficulty] : 1;
-    const aiForward = isAttacker ? aiCap * aggressionFactor : aiCap * AI.defenderSpeedFactor;
     const steeringFactor = clamp(1 - Math.abs(difference) / Math.PI, AI.minSteeringFactor, 1);
-    const recoveryDirection = recovering ? -1 : 1;
-    const recoverySpeed = recovering ? aiCap * 0.55 : aiForward;
-    const commandedSpeed = recoverySpeed * steeringFactor * recoveryDirection;
-    setVec3(scratch.linvel, -Math.sin(aiHeadings[index]) * commandedSpeed, velocity.y, -Math.cos(aiHeadings[index]) * commandedSpeed);
-    opponent.setLinvel(scratch.linvel, true);
+    const throttle = recovering
+      ? -0.55 * steeringFactor
+      : (isAttacker ? AI.difficultyAggression[difficulty] : AI.defenderSpeedFactor) * steeringFactor;
+    const steer = recovering ? 0 : clamp(difference / Math.max(1e-4, CAR.steeringRate * dt), -1, 1);
+    commands[index] = { throttle: clamp(throttle, -1, 1), steer, boost: false, kick: false };
   }
   isActiveAttacker[AI.playerIndex] = true;
 }
