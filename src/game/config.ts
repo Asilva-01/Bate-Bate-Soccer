@@ -83,6 +83,7 @@ export const KICK = {
 } as const;
 
 export const AI = {
+  seed: 1,
   difficultySpeed: { easy: 0.75, medium: 0.95, hard: 1.15 },
   difficultyAggression: { easy: 0.6, medium: 0.8, hard: 1.0 },
   difficultyReactionTime: { easy: 0.5, medium: 0.4, hard: 0.3 },

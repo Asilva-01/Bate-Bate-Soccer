@@ -8,10 +8,23 @@ export function wrapAngle(angle: number) {
 }
 
 /** Quaternion de yaw em Y, equivalente a `setFromAxisAngle((0,1,0), yaw)`. */
-export function yawQuaternion(yaw: number): Quat {
-  return { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
+export function yawQuaternion(yaw: number, out: Quat = { x: 0, y: 0, z: 0, w: 1 }): Quat {
+  out.x = 0;
+  out.y = Math.sin(yaw / 2);
+  out.z = 0;
+  out.w = Math.cos(yaw / 2);
+  return out;
 }
 
-export function forwardFromHeading(heading: number): { x: number; z: number } {
-  return { x: -Math.sin(heading), z: -Math.cos(heading) };
+export function forwardFromHeading(heading: number, out: { x: number; z: number } = { x: 0, z: 0 }): { x: number; z: number } {
+  out.x = -Math.sin(heading);
+  out.z = -Math.cos(heading);
+  return out;
+}
+
+export function setVec3(out: Vec3, x: number, y: number, z: number): Vec3 {
+  out.x = x;
+  out.y = y;
+  out.z = z;
+  return out;
 }

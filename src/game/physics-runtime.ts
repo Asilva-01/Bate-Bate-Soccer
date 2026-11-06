@@ -7,14 +7,15 @@ import { createPose, type Pose } from './render-interpolation';
 import { createArenaDimensions } from './arena-dimensions';
 import { addBallToWorld, addCarToWorld, createStaticArena } from './physics-world';
 import { kickAimDotFor, kickPowerFactorFor, kickReactionFor, type KickTimer } from './kick';
-import { yawQuaternion } from './math';
+import { setVec3, yawQuaternion } from './math';
 import { applyPlayerControl } from './player-control';
-import { applyAiControl, createAiOpponents, resetAiOpponents } from './ai-control';
+import { applyAiControl, createAiOpponents, createAiScratch, resetAiOpponents } from './ai-control';
 import { applyKicks, resetKickState, type KickEvent, type KickStepState } from './kick-step';
 import { handleCollisionEvents } from './collision-events';
 import { applyArenaSafety, applyImpactRecovery, clampBodySpeeds } from './arena-safety';
-import { applyGoalToState, applyMatchEvents } from './match-events';
+import { applyGoalToState, applyMatchEvents, createMatchScratch } from './match-events';
 import { syncVisuals, type VisualObject } from './visual-sync';
+import { mulberry32 } from './rng';
 
 const { fixedStep: STEP, maxFrameDelta } = SIMULATION;
 const CAR_HEIGHT = CAR.halfHeight + CAR.bodyOffset;
@@ -22,6 +23,12 @@ let initialization: Promise<void> | undefined;
 
 export type MatchState = ScoreState;
 export type { KickEvent };
+export type PhysicsOptions = { seed?: number };
+
+const translationScratch = { x: 0, y: 0, z: 0 };
+const linvelScratch = { x: 0, y: 0, z: 0 };
+const angvelScratch = { x: 0, y: 0, z: 0 };
+const rotationScratch = { x: 0, y: 0, z: 0, w: 1 };
 
 export async function createPhysics(
   ball: VisualObject,
@@ -31,6 +38,7 @@ export async function createPhysics(
   difficulty: Difficulty,
   round: number,
   isPlaying: () => boolean,
+  options?: PhysicsOptions,
 ) {
   initialization ??= RAPIER.init();
   await initialization;
@@ -55,6 +63,12 @@ export async function createPhysics(
   let heading = cars[0].rotation.y;
   const aiHeadings = cars.map((car) => car.rotation.y);
   const opponents = createAiOpponents(cars.length);
+  const aiScratch = createAiScratch(cars.length);
+  const matchScratch = createMatchScratch(cars.length);
+  const rng = mulberry32(options?.seed ?? AI.seed);
+  const headings = new Array<number>(cars.length).fill(0);
+  const carVelocitiesBefore = Array.from({ length: cars.length }, () => ({ x: 0, y: 0, z: 0 }));
+  const ballVelocityBefore = { x: 0, y: 0, z: 0 };
   const keyboard = createKeyboardInput(isPlaying);
   const kickState: KickStepState = {
     kickTimers: cars.map((): KickTimer => ({ cooldown: 0, buffer: 0 })),
@@ -75,16 +89,16 @@ export async function createPhysics(
     resetAiOpponents(opponents);
     resetKickState(kickState);
     kickState.lastKickPresses = keyboard.read(input).kickPresses;
-    ballBody.setTranslation({ x: 0, y: BALL.radius + BALL.bodyOffset, z: 0 }, true);
-    ballBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
-    ballBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    ballBody.setTranslation(setVec3(translationScratch, 0, BALL.radius + BALL.bodyOffset, 0), true);
+    ballBody.setLinvel(setVec3(linvelScratch, 0, 0, 0), true);
+    ballBody.setAngvel(setVec3(angvelScratch, 0, 0, 0), true);
     heading = -Math.PI / 2;
     carBodies.forEach((body, index) => {
       aiHeadings[index] = index === AI.playerIndex || index === AI.redAllyIndex ? -Math.PI / 2 : Math.PI / 2;
-      body.setRotation(yawQuaternion(aiHeadings[index]), true);
-      body.setTranslation({ x: spawn[index].x, y: CAR_HEIGHT, z: spawn[index].z }, true);
-      body.setLinvel({ x: 0, y: 0, z: 0 }, true);
-      body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      body.setRotation(yawQuaternion(aiHeadings[index], rotationScratch), true);
+      body.setTranslation(setVec3(translationScratch, spawn[index].x, CAR_HEIGHT, spawn[index].z), true);
+      body.setLinvel(setVec3(linvelScratch, 0, 0, 0), true);
+      body.setAngvel(setVec3(angvelScratch, 0, 0, 0), true);
     });
     setTeams();
     snapPoses();
@@ -98,7 +112,22 @@ export async function createPhysics(
   const capturePose = (body: RAPIER.RigidBody, pose: Pose) => {
     const p = body.translation();
     const q = body.rotation();
-    pose.set([p.x, p.y, p.z, q.x, q.y, q.z, q.w]);
+    pose[0] = p.x; pose[1] = p.y; pose[2] = p.z;
+    pose[3] = q.x; pose[4] = q.y; pose[5] = q.z; pose[6] = q.w;
+  };
+  const fillHeadings = () => {
+    for (let index = 0; index < carBodies.length; index++) {
+      headings[index] = index === AI.playerIndex ? heading : aiHeadings[index];
+    }
+    return headings;
+  };
+  const snapshotVelocities = () => {
+    const ballVel = ballBody.linvel();
+    setVec3(ballVelocityBefore, ballVel.x, ballVel.y, ballVel.z);
+    for (let index = 0; index < carBodies.length; index++) {
+      const velocity = carBodies[index].linvel();
+      setVec3(carVelocitiesBefore[index], velocity.x, velocity.y, velocity.z);
+    }
   };
   const snapPoses = () => bodies.forEach((body, index) => {
     capturePose(body, currentPoses[index]);
@@ -110,11 +139,10 @@ export async function createPhysics(
   });
   const sync = (alpha: number) => syncVisuals(ball, cars, previousPoses, currentPoses, interpolated, alpha, CAR_HEIGHT);
   carBodies.forEach((body, index) => {
-    body.setRotation(yawQuaternion(cars[index].rotation.y), true);
+    body.setRotation(yawQuaternion(cars[index].rotation.y, rotationScratch), true);
   });
   snapPoses();
   sync(1);
-  const carHeadings = () => carBodies.map((_, index) => index === AI.playerIndex ? heading : aiHeadings[index]);
   return {
     update(delta: number, onBallHit: (position: KickEvent['position'], strength: number) => void, onKick?: (event: KickEvent) => void) {
       if (state.finished) return;
@@ -124,12 +152,12 @@ export async function createPhysics(
         const keys = keyboard.read(input, STEP);
         // 5.9: 2–3. veículos (jogador) e IA
         heading = applyPlayerControl(carBodies[AI.playerIndex], heading, keys.steer, keys.throttle, STEP);
-        applyAiControl(carBodies, ballBody, dims, enabled, aiHeadings, opponents, isActiveAttacker, difficulty, round, STEP);
+        applyAiControl(carBodies, ballBody, dims, enabled, aiHeadings, opponents, isActiveAttacker, difficulty, round, STEP, rng, aiScratch);
         // 5.9: 4. toques / chute
         applyKicks(
           carBodies,
           ballBody,
-          carHeadings(),
+          fillHeadings(),
           enabled,
           isActiveAttacker,
           kickState,
@@ -143,16 +171,15 @@ export async function createPhysics(
           onKick,
         );
         // 5.9: 5. world.step
-        const before = ballBody.linvel();
-        const carVelocitiesBefore = carBodies.map((body) => body.linvel());
+        snapshotVelocities();
         world.step(events);
         // 5.9: 6. colisões, limites, rede de segurança
-        handleCollisionEvents(events, carBodies, carColliderIndices, ballBody, ballCollider.handle, carVelocitiesBefore, before, impactRecovery, stats, onBallHit);
+        handleCollisionEvents(events, carBodies, carColliderIndices, ballBody, ballCollider.handle, carVelocitiesBefore, ballVelocityBefore, impactRecovery, stats, onBallHit);
         clampBodySpeeds(carBodies, ballBody);
-        applyImpactRecovery(carBodies, carHeadings(), impactRecovery, STEP);
+        applyImpactRecovery(carBodies, fillHeadings(), impactRecovery, STEP);
         applyArenaSafety(carBodies, ballBody, dims, CAR_HEIGHT, stats);
         // 5.9: 7. gol e bola presa
-        const matchEvent = applyMatchEvents(carBodies, ballBody, dims, enabled, stuck, STEP, stats);
+        const matchEvent = applyMatchEvents(carBodies, ballBody, dims, enabled, stuck, STEP, stats, matchScratch);
         if (matchEvent?.kind === 'goal') {
           state = applyGoalToState(state, matchEvent.scoringSide, round);
           resetPositions();

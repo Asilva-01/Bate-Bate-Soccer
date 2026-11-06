@@ -1,13 +1,42 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { AI } from './config';
-import { clamp, yawQuaternion } from './math';
+import { clamp, setVec3, yawQuaternion, type Quat, type Vec3 } from './math';
 import { opponentSpeed, selectAttacker, type Difficulty } from './match-rules';
 import type { ArenaDimensions } from './arena-dimensions';
+import type { Rng } from './rng';
 
 export type AiOpponentState = { blockedTime: number; recoveryTime: number; attacking: boolean };
 
+type CarSlot = { body: RAPIER.RigidBody; carIndex: number };
+
+export type AiScratch = {
+  rotation: Quat;
+  linvel: Vec3;
+  predictedBall: Vec3;
+  slots: CarSlot[];
+  redTeam: CarSlot[];
+  blueTeam: CarSlot[];
+  redPositions: Vec3[];
+  bluePositions: Vec3[];
+  attackerPositions: Vec3[];
+};
+
 export function createAiOpponents(count: number): AiOpponentState[] {
   return Array.from({ length: count }, () => ({ blockedTime: 0, recoveryTime: 0, attacking: false }));
+}
+
+export function createAiScratch(count: number): AiScratch {
+  return {
+    rotation: { x: 0, y: 0, z: 0, w: 1 },
+    linvel: { x: 0, y: 0, z: 0 },
+    predictedBall: { x: 0, y: 0, z: 0 },
+    slots: Array.from({ length: count }, (_, carIndex) => ({ body: undefined as unknown as RAPIER.RigidBody, carIndex })),
+    redTeam: [],
+    blueTeam: [],
+    redPositions: Array.from({ length: count }, () => ({ x: 0, y: 0, z: 0 })),
+    bluePositions: Array.from({ length: count }, () => ({ x: 0, y: 0, z: 0 })),
+    attackerPositions: [],
+  };
 }
 
 export function resetAiOpponents(opponents: AiOpponentState[]) {
@@ -18,7 +47,17 @@ export function resetAiOpponents(opponents: AiOpponentState[]) {
   });
 }
 
-/** IA atual: persegue o alvo que já calcula e aplica `setLinvel`. Sem alteração de comportamento. */
+function fillTeamPositions(team: CarSlot[], pool: Vec3[], out: Vec3[]) {
+  out.length = 0;
+  for (let i = 0; i < team.length; i++) {
+    const position = team[i].body.translation();
+    const slot = pool[i];
+    setVec3(slot, position.x, position.y, position.z);
+    out.push(slot);
+  }
+}
+
+/** IA atual: persegue o alvo que já calcula e aplica `setLinvel`. RNG injetável; listas reutilizadas. */
 export function applyAiControl(
   carBodies: RAPIER.RigidBody[],
   ballBody: RAPIER.RigidBody,
@@ -30,11 +69,27 @@ export function applyAiControl(
   difficulty: Difficulty,
   round: number,
   dt: number,
+  rng: Rng,
+  scratch: AiScratch,
 ) {
   const target = ballBody.translation();
   const ballVelocity = ballBody.linvel();
   const predictedX = clamp(target.x + ballVelocity.x * AI.predictionSeconds, -dims.goalLineX, dims.goalLineX);
   const predictedZ = clamp(target.z + ballVelocity.z * AI.predictionSeconds, -dims.sideWallZ + AI.wallClearance, dims.sideWallZ - AI.wallClearance);
+  setVec3(scratch.predictedBall, predictedX, target.y, predictedZ);
+
+  const redTeam = scratch.redTeam;
+  const blueTeam = scratch.blueTeam;
+  redTeam.length = 0;
+  blueTeam.length = 0;
+  for (let carIndex = 1; carIndex < carBodies.length; carIndex++) {
+    if (!enabled(carIndex)) continue;
+    const slot = scratch.slots[carIndex];
+    slot.body = carBodies[carIndex];
+    if (carIndex === AI.redAllyIndex) redTeam.push(slot);
+    else blueTeam.push(slot);
+  }
+
   for (let index = 1; index < carBodies.length; index++) {
     isActiveAttacker[index] = false;
     if (!enabled(index)) continue;
@@ -51,11 +106,10 @@ export function applyAiControl(
     const directionX = pushX / pushLength;
     const directionZ = pushZ / pushLength;
     const offset = index === AI.opponentIndex || index === AI.redAllyIndex ? 0 : (index - AI.roleOffsetStartIndex) * AI.roleOffsetSpacing - AI.roleOffsetCenter;
-    const activeTeamCars = carBodies.map((body, carIndex) => ({ body, carIndex })).filter(({ carIndex }) => carIndex > AI.playerIndex && enabled(carIndex));
-    const sameTeamCars = activeTeamCars.filter(({ carIndex }) => index === AI.redAllyIndex ? carIndex === AI.redAllyIndex : carIndex !== AI.redAllyIndex);
-    const attackerIndex = selectAttacker(sameTeamCars.map(({ body }) => {
-      const carPosition = body.translation(); return { x: carPosition.x, y: carPosition.y, z: carPosition.z };
-    }), { x: predictedX, y: target.y, z: predictedZ }, goalX);
+    const sameTeamCars = index === AI.redAllyIndex ? redTeam : blueTeam;
+    const positionPool = index === AI.redAllyIndex ? scratch.redPositions : scratch.bluePositions;
+    fillTeamPositions(sameTeamCars, positionPool, scratch.attackerPositions);
+    const attackerIndex = selectAttacker(scratch.attackerPositions, scratch.predictedBall, goalX);
     const isAttacker = sameTeamCars[attackerIndex]?.carIndex === index;
     isActiveAttacker[index] = isAttacker;
     const defendX = index === AI.redAllyIndex ? -dims.goalLineX + AI.defenseDepth : dims.goalLineX - AI.defenseDepth;
@@ -81,13 +135,13 @@ export function applyAiControl(
       opponentState.recoveryTime = AI.recoverySeconds;
       opponentState.blockedTime = 0;
       opponentState.attacking = false;
-      const recoveryAngle = aiHeadings[index] + (Math.random() > 0.5 ? 1 : -1) * (AI.recoveryAngleRange / 2 + Math.random() * AI.recoveryAngleRange / 2);
+      const recoveryAngle = aiHeadings[index] + (rng() > 0.5 ? 1 : -1) * (AI.recoveryAngleRange / 2 + rng() * AI.recoveryAngleRange / 2);
       aiHeadings[index] = recoveryAngle;
     }
     const recovering = opponentState.recoveryTime > 0;
     opponentState.recoveryTime = Math.max(0, opponentState.recoveryTime - dt);
     if (!recovering) aiHeadings[index] += clamp(difference, -AI.headingTurnRate * dt, AI.headingTurnRate * dt);
-    opponent.setRotation(yawQuaternion(aiHeadings[index]), true);
+    opponent.setRotation(yawQuaternion(aiHeadings[index], scratch.rotation), true);
     const aiCap = opponentSpeed(difficulty, round) * AI.speedMultiplier;
     const aggressionFactor = isAttacker ? AI.difficultyAggression[difficulty] : 1;
     const aiForward = isAttacker ? aiCap * aggressionFactor : aiCap * AI.defenderSpeedFactor;
@@ -95,11 +149,8 @@ export function applyAiControl(
     const recoveryDirection = recovering ? -1 : 1;
     const recoverySpeed = recovering ? aiCap * 0.55 : aiForward;
     const commandedSpeed = recoverySpeed * steeringFactor * recoveryDirection;
-    opponent.setLinvel({
-      x: -Math.sin(aiHeadings[index]) * commandedSpeed,
-      y: velocity.y,
-      z: -Math.cos(aiHeadings[index]) * commandedSpeed,
-    }, true);
+    setVec3(scratch.linvel, -Math.sin(aiHeadings[index]) * commandedSpeed, velocity.y, -Math.cos(aiHeadings[index]) * commandedSpeed);
+    opponent.setLinvel(scratch.linvel, true);
   }
   isActiveAttacker[AI.playerIndex] = true;
 }

@@ -7,20 +7,11 @@ import {
 } from '../src/game/arena-dimensions.ts';
 import { addBallToWorld, createStaticArena } from '../src/game/physics-world.ts';
 import { containSpatialBody } from '../src/game/arena-boundaries.ts';
+import { mulberry32 } from '../src/game/rng.ts';
 
 const dims = createArenaDimensions();
 const STEP = SIMULATION.fixedStep;
 let world: RAPIER.World | undefined;
-
-function mulberry32(seed: number) {
-  let t = seed >>> 0;
-  return () => {
-    t += 0x6d2b79f5;
-    let r = Math.imul(t ^ (t >>> 15), 1 | t);
-    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
-    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 async function arenaWorld() {
   await RAPIER.init();
