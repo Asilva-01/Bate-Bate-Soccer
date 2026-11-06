@@ -1,4 +1,5 @@
-import { AI, BALL, CAR, FIELD, KICK } from './config';
+import { AI, BALL, CAR, KICK } from './config';
+import { createArenaDimensions } from './arena-dimensions';
 import type { Difficulty } from './match-rules';
 
 export type KickTimer = { cooldown: number; buffer: number };
@@ -63,8 +64,9 @@ export function kickDirection(
 export function applyWallGuard(dirX: number, dirZ: number, ballX: number, ballZ: number): { x: number; z: number } {
   let x = dirX;
   let z = dirZ;
-  const limitX = FIELD.goalBackX - BALL.radius;
-  const limitZ = FIELD.sideWallZ - BALL.radius;
+  const dims = createArenaDimensions();
+  const limitX = dims.goalBackX - BALL.radius;
+  const limitZ = dims.sideWallZ - BALL.radius;
   if (ballX > limitX - KICK.wallGuard && x > 0) x = 0;
   if (ballX < -limitX + KICK.wallGuard && x < 0) x = 0;
   if (ballZ > limitZ - KICK.wallGuard && z > 0) z = 0;
@@ -197,7 +199,7 @@ export function shouldAiKick(
   const toGoalZ = 0;
   const toGoalLen = Math.hypot(toGoalX, toGoalZ) || 1;
   const aimDot = (dirX * toGoalX + dirZ * toGoalZ) / toGoalLen;
-  const defendingThird = (ballX - ownGoalX) * attackDirX < FIELD.goalLineX / 3;
+  const defendingThird = (ballX - ownGoalX) * attackDirX < createArenaDimensions().goalLineX / 3;
   if (defendingThird) {
     const awayX = -Math.sign(ownGoalX) || 1;
     return dirX * awayX >= 0;

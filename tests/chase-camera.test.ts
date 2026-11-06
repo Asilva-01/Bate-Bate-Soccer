@@ -1,6 +1,8 @@
 import { expect, test } from 'vitest';
 import { CAMERA } from '../src/game/config.ts';
+import { createArenaDimensions } from '../src/game/arena-dimensions.ts';
 import {
+  clampCameraToArena,
   createChaseRig,
   offscreenIndicator,
   stepChaseCamera,
@@ -11,9 +13,10 @@ import {
 
 const DEG = Math.PI / 180;
 const ASPECT = 844 / 390;
+const arena = createArenaDimensions();
 const target = (overrides: Partial<CameraTarget> = {}): CameraTarget => ({
   carX: 0, carY: 0, carZ: 0, carHeading: 0, carSpeed: 0, boosting: false,
-  ballX: 0, ballY: 0.96, ballZ: 120,
+  ballX: 0, ballY: 0.96, ballZ: 120, mode: 'car',
   ...overrides,
 });
 const forward = (heading: number) => ({ x: -Math.sin(heading), z: -Math.cos(heading) });
@@ -31,8 +34,8 @@ test.each([
 ] as const)('preset %s: com o carro parado, a câmera assenta a distância e altura do preset', (preset, heading) => {
   const { distance, height } = CAMERA.presets[preset];
   const subject = target({ carX: 12, carZ: -7, carHeading: heading });
-  let { rig } = createChaseRig(target({ carX: 12, carZ: -7, carHeading: heading + 1.2 }), ASPECT, preset);
-  for (let i = 0; i < 120; i++) rig = stepChaseCamera(rig, subject, 1 / 60, ASPECT, preset).rig;
+  let { rig } = createChaseRig(target({ carX: 12, carZ: -7, carHeading: heading + 1.2 }), ASPECT, arena, preset);
+  for (let i = 0; i < 120; i++) rig = stepChaseCamera(rig, subject, 1 / 60, ASPECT, arena, preset).rig;
   const f = forward(heading);
   const behind = -((rig.x - 12) * f.x + (rig.z + 7) * f.z);
   const sideways = (rig.x - 12) * -f.z + (rig.z + 7) * f.x;
@@ -43,19 +46,19 @@ test.each([
 
 test('preset perto tem ~10° de inclinação e o alta ~25°', () => {
   for (const [preset, expected] of [['perto', 10], ['alta', 25]] as const) {
-    const { rig, lookAt } = createChaseRig(target(), ASPECT, preset);
+    const { rig, lookAt } = createChaseRig(target(), ASPECT, arena, preset);
     const horizontal = Math.hypot(lookAt.x - rig.x, lookAt.z - rig.z);
     expect(Math.atan2(rig.y - lookAt.y, horizontal) / DEG).toBeCloseTo(expected, 0);
   }
 });
 
 test('giro de 180° em 0,5 s: o atraso de yaw nunca passa de 35°', () => {
-  let { rig } = createChaseRig(target(), ASPECT, 'perto');
+  let { rig } = createChaseRig(target(), ASPECT, arena, 'perto');
   let worst = 0;
   const steps = 30;
   for (let i = 1; i <= steps; i++) {
     const heading = (Math.PI * i) / steps;
-    rig = stepChaseCamera(rig, target({ carHeading: heading }), 1 / 60, ASPECT, 'perto').rig;
+    rig = stepChaseCamera(rig, target({ carHeading: heading }), 1 / 60, ASPECT, arena, 'perto').rig;
     worst = Math.max(worst, Math.abs(wrapAngle(heading - rig.yaw)));
   }
   expect(worst).toBeLessThanOrEqual(CAMERA.maxYawLagDeg * DEG + 1e-9);
@@ -64,8 +67,8 @@ test('giro de 180° em 0,5 s: o atraso de yaw nunca passa de 35°', () => {
 
 test('assistência de bola desvia o yaw em até 15° na direção da bola e some fora do cone', () => {
   const settle = (subject: CameraTarget) => {
-    let { rig } = createChaseRig(subject, ASPECT, 'perto');
-    for (let i = 0; i < 240; i++) rig = stepChaseCamera(rig, subject, 1 / 60, ASPECT, 'perto').rig;
+    let { rig } = createChaseRig(subject, ASPECT, arena, 'perto');
+    for (let i = 0; i < 240; i++) rig = stepChaseCamera(rig, subject, 1 / 60, ASPECT, arena, 'perto').rig;
     return rig;
   };
   const onLeft = settle(target({ ballX: -12, ballZ: -12 }));
@@ -76,15 +79,15 @@ test('assistência de bola desvia o yaw em até 15° na direção da bola e some
 });
 
 test('a câmera encaixa de uma vez quando o carro é teleportado', () => {
-  const { rig } = createChaseRig(target(), ASPECT, 'perto');
-  const next = stepChaseCamera(rig, target({ carX: 40 }), 1 / 60, ASPECT, 'perto').rig;
-  expect(next.x).toBeCloseTo(40, 6);
+  const { rig } = createChaseRig(target(), ASPECT, arena, 'perto');
+  const next = stepChaseCamera(rig, target({ carX: 32 }), 1 / 60, ASPECT, arena, 'perto').rig;
+  expect(next.x).toBeCloseTo(32, 6);
 });
 
 test('FOV sobe no turbo e não sobe com movimento reduzido', () => {
   const run = (reducedMotion: boolean) => {
-    let { rig } = createChaseRig(target(), ASPECT, 'perto') ;
-    for (let i = 0; i < 120; i++) rig = stepChaseCamera(rig, target({ boosting: true }), 1 / 60, ASPECT, 'perto', { reducedMotion }).rig;
+    let { rig } = createChaseRig(target(), ASPECT, arena, 'perto');
+    for (let i = 0; i < 120; i++) rig = stepChaseCamera(rig, target({ boosting: true }), 1 / 60, ASPECT, arena, 'perto', { reducedMotion }).rig;
     return rig.fovDeg;
   };
   const base = verticalFovForAspect(ASPECT, CAMERA.hFovDeg, CAMERA.vFovMinDeg, CAMERA.vFovMaxDeg);
@@ -129,4 +132,36 @@ test('offscreenIndicator: sempre dentro da elipse recuada pelos insets', () => {
     const ny = (result.y - 195) / (195 - 56);
     expect(nx * nx + ny * ny).toBeCloseTo(1, 6);
   }
+});
+
+test('clampCameraToArena: fora da parede fica a ≥ 1 u dentro e reporta a distância perdida', () => {
+  const desired = { x: 0, y: 3.6, z: 32 };
+  const clamped = clampCameraToArena(desired, arena, CAMERA.wallMargin);
+  expect(Math.abs(clamped.z)).toBeLessThanOrEqual(arena.sideWallZ - CAMERA.wallMargin + 1e-9);
+  expect(clamped.lostDistance).toBeGreaterThan(4);
+  const risen = clamped.y + CAMERA.heightGainPerLostDistance * clamped.lostDistance;
+  expect(risen).toBeCloseTo(clamped.y + 0.5 * clamped.lostDistance, 6);
+});
+
+test('clampCameraToArena: teto respeitado', () => {
+  const clamped = clampCameraToArena({ x: 0, y: 28, z: 0 }, arena, CAMERA.wallMargin);
+  expect(clamped.y).toBeLessThanOrEqual(arena.ceilingY - CAMERA.wallMargin + 1e-9);
+  expect(clamped.lostDistance).toBeGreaterThan(7);
+});
+
+test('modo ball: com a bola a menos de 4 u no plano, o yaw não muda', () => {
+  const subject = target({ mode: 'ball', ballX: 2, ballZ: 1, ballY: 3, carHeading: 0.35 });
+  let { rig } = createChaseRig(subject, ASPECT, arena, 'perto');
+  const yaw0 = rig.yaw;
+  for (let i = 0; i < 120; i++) {
+    rig = stepChaseCamera(rig, subject, 1 / 60, ASPECT, arena, 'perto').rig;
+  }
+  expect(rig.yaw).toBeCloseTo(yaw0, 6);
+});
+
+test('modo ball: com a bola à frente, o yaw aponta para ela', () => {
+  const subject = target({ mode: 'ball', ballX: -20, ballZ: -8, ballY: 4 });
+  let { rig } = createChaseRig(subject, ASPECT, arena, 'perto');
+  for (let i = 0; i < 180; i++) rig = stepChaseCamera(rig, subject, 1 / 60, ASPECT, arena, 'perto').rig;
+  expect(rig.yaw).toBeCloseTo(Math.atan2(20, 8), 1);
 });

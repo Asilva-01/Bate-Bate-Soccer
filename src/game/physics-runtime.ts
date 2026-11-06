@@ -2,11 +2,13 @@
 import * as THREE from 'three';
 import { awardGoal, getScoringSide, opponentCars, opponentSpeed, selectAttacker, type Difficulty } from './match-rules';
 import { createStuckMonitor } from './stuck-monitor';
-import { AI, BALL, CAR, FIELD, KICK, MATCH, SIMULATION } from './config';
+import { AI, BALL, CAR, KICK, MATCH, SIMULATION, STUCK } from './config';
 import { createKeyboardInput, type ControlFrame } from './input';
 import { getLateralRecoveryImpulse, headingDelta, nextForwardSpeed } from './vehicle-dynamics';
 import { createPose, interpolatePose, type Pose } from './render-interpolation';
-import { containPlanarBody } from './arena-boundaries';
+import { containSpatialBody } from './arena-boundaries';
+import { createArenaDimensions } from './arena-dimensions';
+import { addBallToWorld, addCarToWorld, createStaticArena } from './physics-world';
 import {
   computeKickTarget,
   impulseForKickTarget,
@@ -29,32 +31,19 @@ let initialization: Promise<void> | undefined;
 
 export type MatchState = { red: number; blue: number; redCars: number; blueCars: number; message: string; finished: boolean };
 export type KickEvent = { position: THREE.Vector3; power: number; team: 'red' | 'blue'; isPlayer: boolean };
-export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], input: ControlFrame, onState: (state: MatchState) => void, difficulty: Difficulty, round: number, isPlaying: () => boolean) {
+export async function createPhysics(ball: THREE.Object3D, cars: THREE.Group[], input: ControlFrame, onState: (state: MatchState) => void, difficulty: Difficulty, round: number, isPlaying: () => boolean) {
   initialization ??= RAPIER.init();
   await initialization;
+  const dims = createArenaDimensions();
   const world = new RAPIER.World({ x: 0, y: -SIMULATION.gravity, z: 0 });
   world.timestep = STEP;
   world.integrationParameters.numSolverIterations = SIMULATION.solverIterations;
-  const fixedBox = (x: number, y: number, z: number, hx: number, hy: number, hz: number) => {
-    world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z).setRestitution(SIMULATION.wallRestitution));
-  };
-  fixedBox(0, FIELD.recovery.floorCenterY, 0, FIELD.halfWidth, FIELD.recovery.floorHalfHeight, FIELD.halfLength);
-  for (const z of [-FIELD.sideWallZ, FIELD.sideWallZ]) fixedBox(0, SIMULATION.carBodyCenterOffset, z, FIELD.goalLineX, FIELD.recovery.wallHalfHeight, FIELD.recovery.wallHalfDepth);
-  // Posts and crossbars match the visible goal openings; the goal mouth remains clear.
-  for (const x of [-FIELD.goalLineX, FIELD.goalLineX]) {
-    for (const z of [-FIELD.goalHalfWidth, FIELD.goalHalfWidth]) fixedBox(x, FIELD.goalHeight / 2, z, FIELD.recovery.goalColliderHalfSize, FIELD.goalHeight / 2, FIELD.recovery.goalColliderHalfSize);
-    fixedBox(x, FIELD.goalHeight, 0, FIELD.recovery.goalColliderHalfSize, FIELD.recovery.goalColliderHalfSize, FIELD.goalHalfWidth);
-    fixedBox(Math.sign(x) * FIELD.goalBackX, FIELD.goalHeight / 2, 0, FIELD.recovery.goalColliderHalfSize, FIELD.goalHeight / 2, FIELD.goalHalfWidth);
-  }
-
-  const ballBody = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(0, BALL.radius + BALL.bodyOffset, 0).setCcdEnabled(true).setLinearDamping(BALL.linearDamping));
-  const ballCollider = world.createCollider(RAPIER.ColliderDesc.ball(BALL.radius).setMass(BALL.mass).setRestitution(BALL.restitution).setFriction(BALL.friction).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), ballBody);
+  createStaticArena(world, dims);
+  const { body: ballBody, collider: ballCollider } = addBallToWorld(world);
   const events = new RAPIER.EventQueue(true);
   const carColliderIndices = new Map<number, number>();
   const carBodies = cars.map((car, index) => {
-    const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(car.position.x, CAR_HEIGHT, car.position.z).setCcdEnabled(true).setLinearDamping(CAR.bodyLinearDamping).setAngularDamping(CAR.angularDamping));
-    body.setEnabledRotations(false, true, false, true);
-    const collider = world.createCollider(RAPIER.ColliderDesc.cylinder(CAR.halfHeight, CAR.radius).setMass(CAR.mass).setFriction(CAR.friction).setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min).setRestitution(CAR.restitution).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), body);
+    const { body, collider } = addCarToWorld(world, car.position.x, CAR_HEIGHT, car.position.z);
     carColliderIndices.set(collider.handle, index);
     return body;
   });
@@ -158,8 +147,8 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
         // Approach from behind the ball, then push it away from the nearest wall.
         const target = ballBody.translation();
         const ballVelocity = ballBody.linvel();
-        const predictedX = THREE.MathUtils.clamp(target.x + ballVelocity.x * AI.predictionSeconds, -FIELD.goalLineX, FIELD.goalLineX);
-        const predictedZ = THREE.MathUtils.clamp(target.z + ballVelocity.z * AI.predictionSeconds, -FIELD.sideWallZ + AI.wallClearance, FIELD.sideWallZ - AI.wallClearance);
+        const predictedX = THREE.MathUtils.clamp(target.x + ballVelocity.x * AI.predictionSeconds, -dims.goalLineX, dims.goalLineX);
+        const predictedZ = THREE.MathUtils.clamp(target.z + ballVelocity.z * AI.predictionSeconds, -dims.sideWallZ + AI.wallClearance, dims.sideWallZ - AI.wallClearance);
         for (let index = 1; index < carBodies.length; index++) {
           isActiveAttacker[index] = false;
           if (!enabled(index)) continue;
@@ -170,7 +159,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           const playerPosition = carBodies[0].translation();
           const playerBlocksGoal = index !== AI.redAllyIndex && playerPosition.x < target.x - AI.playerBlockGoalXMargin && Math.abs(playerPosition.z - target.z) < AI.playerBlockGoalZRange;
           const aimZ = playerBlocksGoal ? (playerPosition.z >= 0 ? -AI.aimLaneOffset : AI.aimLaneOffset) : 0;
-          const goalX = index === AI.redAllyIndex ? FIELD.goalLineX : -FIELD.goalLineX;
+          const goalX = index === AI.redAllyIndex ? dims.goalLineX : -dims.goalLineX;
           const pushZ = THREE.MathUtils.clamp((aimZ - target.z) / Math.min(AI.pushDistanceMax, Math.max(AI.pushDistanceMin, Math.abs(goalX - target.x))), -AI.pushZLimit, AI.pushZLimit);
           const pushLength = Math.hypot(pushX, pushZ);
           const directionX = pushX / pushLength;
@@ -183,12 +172,12 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           }), { x: predictedX, y: target.y, z: predictedZ }, goalX);
           const isAttacker = sameTeamCars[attackerIndex]?.carIndex === index;
           isActiveAttacker[index] = isAttacker;
-          const defendX = index === AI.redAllyIndex ? -FIELD.goalLineX + AI.defenseDepth : FIELD.goalLineX - AI.defenseDepth;
+          const defendX = index === AI.redAllyIndex ? -dims.goalLineX + AI.defenseDepth : dims.goalLineX - AI.defenseDepth;
           const ballThreatX = (predictedX - defendX) * (index === AI.redAllyIndex ? -1 : 1);
-          const defenseDynamic = ballThreatX > 0 ? THREE.MathUtils.clamp(ballThreatX / (FIELD.goalLineX * 2), 0, AI.defenseDynamicFactor) : 0;
+          const defenseDynamic = ballThreatX > 0 ? THREE.MathUtils.clamp(ballThreatX / (dims.goalLineX * 2), 0, AI.defenseDynamicFactor) : 0;
           const defendTargetX = defendX + (predictedX - defendX) * defenseDynamic;
-          const approachX = THREE.MathUtils.clamp(isAttacker ? predictedX - directionX * AI.attackRange - directionZ * offset : defendTargetX, -FIELD.goalLineX + AI.goalClampMargin, FIELD.goalLineX - AI.goalClampMargin);
-          const approachZ = THREE.MathUtils.clamp(isAttacker ? predictedZ - directionZ * AI.attackRange + directionX * offset : predictedZ * AI.defenderPositionFollowFactor + offset, -FIELD.sideWallZ + AI.wallClearance, FIELD.sideWallZ - AI.wallClearance);
+          const approachX = THREE.MathUtils.clamp(isAttacker ? predictedX - directionX * AI.attackRange - directionZ * offset : defendTargetX, -dims.goalLineX + AI.goalClampMargin, dims.goalLineX - AI.goalClampMargin);
+          const approachZ = THREE.MathUtils.clamp(isAttacker ? predictedZ - directionZ * AI.attackRange + directionX * offset : predictedZ * AI.defenderPositionFollowFactor + offset, -dims.sideWallZ + AI.wallClearance, dims.sideWallZ - AI.wallClearance);
           const approachDistance = Math.hypot(approachX - position.x, approachZ - position.z);
           const ballDistance = Math.hypot(predictedX - position.x, predictedZ - position.z);
           if (isAttacker && approachDistance < AI.attackerApproachDistance) opponentState.attacking = true;
@@ -251,7 +240,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           } else if (isActiveAttacker[index]) {
             const dir = kickDirection(angle, position.x, position.z, ballPos.x, ballPos.z);
             const attackDirX = index === AI.redAllyIndex ? 1 : -1;
-            const ownGoalX = attackDirX > 0 ? -FIELD.goalLineX : FIELD.goalLineX;
+            const ownGoalX = attackDirX > 0 ? -dims.goalLineX : dims.goalLineX;
             const wantsKick = zoneTime[index] >= kickReaction && shouldAiKick(
               dir.x,
               dir.z,
@@ -299,7 +288,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
             // reservado para recuo futuro
           }
           const event = kickEvents.find((entry) => entry.isPlayer) ?? kickEvents[0];
-          if (event?.isPlayer && isShotOnGoal(ballPos.x, ballPos.z, resolved.x, resolved.z, FIELD.goalLineX, FIELD.goalHalfWidth)) stats.playerShotsOnGoal += 1;
+          if (event?.isPlayer && isShotOnGoal(ballPos.x, ballPos.z, resolved.x, resolved.z, dims.goalLineX, dims.goalHalfWidth)) stats.playerShotsOnGoal += 1;
           if (event && onKick) onKick({ ...event, power: resolved.power });
         }
         const before = ballBody.linvel();
@@ -350,40 +339,48 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
         });
         const positionBeforeBounds = ballBody.translation();
         const velocityBeforeBounds = ballBody.linvel();
-        const boundedBall = containPlanarBody(
+        const boundedBall = containSpatialBody(
           positionBeforeBounds.x,
+          positionBeforeBounds.y,
           positionBeforeBounds.z,
           velocityBeforeBounds.x,
+          velocityBeforeBounds.y,
           velocityBeforeBounds.z,
-          FIELD.goalBackX - BALL.radius,
-          FIELD.sideWallZ - BALL.radius,
+          dims.goalBackX - BALL.radius + 0.8,
+          dims.sideWallZ - BALL.radius + 0.8,
+          BALL.radius - 0.8,
+          dims.ceilingY - BALL.radius + 0.8,
           BALL.restitution,
         );
-        if (boundedBall.x !== positionBeforeBounds.x || boundedBall.z !== positionBeforeBounds.z) {
+        if (boundedBall.x !== positionBeforeBounds.x || boundedBall.y !== positionBeforeBounds.y || boundedBall.z !== positionBeforeBounds.z) {
           stats.safetyNetActivations += 1;
-          ballBody.setTranslation({ x: boundedBall.x, y: positionBeforeBounds.y, z: boundedBall.z }, true);
-          ballBody.setLinvel({ x: boundedBall.velocityX, y: velocityBeforeBounds.y, z: boundedBall.velocityZ }, true);
+          ballBody.setTranslation({ x: boundedBall.x, y: boundedBall.y, z: boundedBall.z }, true);
+          ballBody.setLinvel({ x: boundedBall.velocityX, y: boundedBall.velocityY, z: boundedBall.velocityZ }, true);
         }
         carBodies.forEach((body) => {
           const position = body.translation();
           const velocity = body.linvel();
-          const bounded = containPlanarBody(
+          const bounded = containSpatialBody(
             position.x,
+            position.y,
             position.z,
             velocity.x,
+            velocity.y,
             velocity.z,
-            FIELD.goalBackX - CAR.radius,
-            FIELD.sideWallZ - CAR.radius,
+            dims.goalBackX - CAR.radius + 0.8,
+            dims.sideWallZ - CAR.radius + 0.8,
+            CAR_HEIGHT - 0.8,
+            dims.ceilingY - CAR.halfHeight + 0.8,
             CAR.restitution,
           );
-          if (bounded.x !== position.x || bounded.z !== position.z) {
+          if (bounded.x !== position.x || bounded.y !== position.y || bounded.z !== position.z) {
             stats.safetyNetActivations += 1;
-            body.setTranslation({ x: bounded.x, y: position.y, z: bounded.z }, true);
-            body.setLinvel({ x: bounded.velocityX, y: velocity.y, z: bounded.velocityZ }, true);
+            body.setTranslation({ x: bounded.x, y: bounded.y, z: bounded.z }, true);
+            body.setLinvel({ x: bounded.velocityX, y: bounded.velocityY, z: bounded.velocityZ }, true);
           }
         });
         const ballPosition = ballBody.translation();
-        const scoringSide = getScoringSide(ballPosition);
+        const scoringSide = getScoringSide(ballPosition, dims);
         if (scoringSide) {
           const redGoal = scoringSide === 'blue';
           state = awardGoal(state, redGoal ? 'red' : 'blue', round);
@@ -398,6 +395,15 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           onState({ ...state });
           accumulator = 0;
           break;
+        }
+        const ballSpeed = Math.hypot(ballBody.linvel().x, ballBody.linvel().y, ballBody.linvel().z);
+        const pinchCars = carBodies.flatMap((body, index) => {
+          if (!enabled(index)) return [];
+          const pos = body.translation();
+          return [{ x: pos.x, z: pos.z, team: index === AI.playerIndex || index === AI.redAllyIndex ? 'red' as const : 'blue' as const }];
+        });
+        if (stuck.updatePinch({ x: ballPosition.x, z: ballPosition.z, speed: ballSpeed }, pinchCars, STEP)) {
+          ballBody.applyImpulse({ x: 0, y: STUCK.liftImpulse, z: 0 }, true);
         }
         commitPoses();
         accumulator -= STEP;
