@@ -177,7 +177,7 @@ export async function createPhysics(
         handleCollisionEvents(events, carBodies, carColliderIndices, ballBody, ballCollider.handle, carVelocitiesBefore, ballVelocityBefore, impactRecovery, stats, onBallHit);
         clampBodySpeeds(carBodies, ballBody);
         applyImpactRecovery(carBodies, fillHeadings(), impactRecovery, STEP);
-        applyArenaSafety(carBodies, ballBody, dims, CAR_HEIGHT, stats);
+        applyArenaSafety(carBodies, ballBody, dims, stats);
         // 5.9: 7. gol e bola presa
         const matchEvent = applyMatchEvents(carBodies, ballBody, dims, enabled, stuck, STEP, stats, matchScratch);
         if (matchEvent?.kind === 'goal') {

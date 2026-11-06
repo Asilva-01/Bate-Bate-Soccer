@@ -152,6 +152,8 @@ export const STUCK = {
   liftImpulse: 14,
 } as const;
 
+export const SAFETY = { tolerance: 0.8 } as const;
+
 export const SIMULATION = {
   fixedStep: 1 / 60,
   maxFrameDelta: 0.1,

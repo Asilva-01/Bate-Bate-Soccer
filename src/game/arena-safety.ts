@@ -1,6 +1,6 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { BALL, CAR } from './config';
-import { containSpatialBody } from './arena-boundaries';
+import { ballSafetyBounds, carSafetyBounds, containWithSafetyBounds } from './arena-boundaries';
 import type { ArenaDimensions } from './arena-dimensions';
 import { setVec3, type Vec3 } from './math';
 import { getLateralRecoveryImpulse } from './vehicle-dynamics';
@@ -59,39 +59,34 @@ export function applyArenaSafety(
   carBodies: RAPIER.RigidBody[],
   ballBody: RAPIER.RigidBody,
   dims: ArenaDimensions,
-  carHeight: number,
   stats: { safetyNetActivations: number },
 ) {
+  const ballBounds = ballSafetyBounds(dims);
+  const carBounds = carSafetyBounds(dims);
   const positionBeforeBounds = ballBody.translation();
   const velocityBeforeBounds = ballBody.linvel();
-  const boundedBall = containSpatialBody(
+  const boundedBall = containWithSafetyBounds(
     positionBeforeBounds.x,
     positionBeforeBounds.y,
     positionBeforeBounds.z,
     velocityBeforeBounds.x,
     velocityBeforeBounds.y,
     velocityBeforeBounds.z,
-    dims.goalBackX - BALL.radius + 0.8,
-    dims.sideWallZ - BALL.radius + 0.8,
-    BALL.radius - 0.8,
-    dims.ceilingY - BALL.radius + 0.8,
+    ballBounds,
     BALL.restitution,
   );
   if (applyBounded(ballBody, boundedBall, positionBeforeBounds)) stats.safetyNetActivations += 1;
   for (const body of carBodies) {
     const position = body.translation();
     const velocity = body.linvel();
-    const bounded = containSpatialBody(
+    const bounded = containWithSafetyBounds(
       position.x,
       position.y,
       position.z,
       velocity.x,
       velocity.y,
       velocity.z,
-      dims.goalBackX - CAR.radius + 0.8,
-      dims.sideWallZ - CAR.radius + 0.8,
-      carHeight - 0.8,
-      dims.ceilingY - CAR.halfHeight + 0.8,
+      carBounds,
       CAR.restitution,
     );
     if (applyBounded(body, bounded, position)) stats.safetyNetActivations += 1;
