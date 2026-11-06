@@ -58,4 +58,6 @@ Colisões fortes ativam uma correção breve de derrapagem, e cada gol dispara u
 
 ## Próxima versão do gameplay
 
+A direção atual do produto está em [`docs/visao-e-arquitetura-v3.md`](docs/visao-e-arquitetura-v3.md): futebol de carrinhos 3D com câmera atrás do carro, pensado primeiro para o celular deitado. O documento traz a visão de produto, as regras da partida (2 minutos, 1 contra 1 e depois 2 contra 2 contra a IA), o novo controle por toque (joystick analógico, TOQUE e TURBO), a câmera, a arena fechada com bola maior e mais quicante, a IA, as metas de desempenho, o plano em oito PRs pequenos e as decisões abertas. Ele substitui em parte a v2 abaixo.
+
 A arquitetura da v2 está em [`docs/arquitetura-gameplay-v2.md`](docs/arquitetura-gameplay-v2.md). Ela cobre o botão de chute (Espaço ou botão **CHUTE**, com recarga e a mesma regra para jogador e IA), os times de até três carrinhos com papéis de atacante, apoio e goleiro, e o campo 25% maior com câmera e colliders derivados das dimensões. O documento também traz os riscos, o plano em três PRs pequenos e os critérios de aceite.
