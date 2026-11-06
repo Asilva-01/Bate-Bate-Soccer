@@ -257,11 +257,14 @@ export function createAudio() {
       if (!enabled) return;
       await playCurrent(true, advanceMatch);
     },
-    sound(kind: 'hit' | 'goal' | 'kick') {
+    sound(kind: 'hit' | 'goal' | 'kick' | 'dash') {
       if (kind === 'hit') {
         if (!context || context.currentTime - lastHit < 0.1) return;
         lastHit = context.currentTime;
         tone(160, 0.09, 0.045, 'triangle', 65);
+      } else if (kind === 'dash') {
+        tone(180, 0.05, 0.028, 'sine', 90);
+        percussion(0.04, 0.02, 900);
       } else if (kind === 'kick') {
         tone(220, 0.07, 0.05, 'triangle', 120);
         percussion(0.05, 0.035, 1200);

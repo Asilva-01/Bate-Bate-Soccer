@@ -1,13 +1,22 @@
-import { AI, BALL, CAR, KICK } from './config';
+import { AI, BALL, CAR, KICK, SIMULATION } from './config';
 import { createArenaDimensions } from './arena-dimensions';
+import { clamp, forwardFromHeading, lerp, smoothstep } from './math';
 import type { Difficulty } from './match-rules';
 
 export type KickTimer = { cooldown: number; buffer: number };
 
 export type KickVelocityTarget = { x: number; y: number; z: number; power: number };
 
+export type KickZoneGeom = {
+  carFront?: number;
+  ballRadius?: number;
+  maxBallHeight?: number;
+  reach?: number;
+  coneHalfAngleDeg?: number;
+  ignoreHeight?: boolean;
+};
+
 const DEG = Math.PI / 180;
-const CONE_HALF = KICK.coneHalfAngleDeg * DEG;
 
 export function isInKickZone(
   carX: number,
@@ -16,28 +25,87 @@ export function isInKickZone(
   ballX: number,
   ballY: number,
   ballZ: number,
+  geom: KickZoneGeom = {},
 ): boolean {
-  if (ballY > KICK.maxBallHeight) return false;
+  const maxHeight = geom.maxBallHeight ?? KICK.maxBallHeight;
+  if (!geom.ignoreHeight && ballY > maxHeight) return false;
   const dx = ballX - carX;
   const dz = ballZ - carZ;
   const centerDistance = Math.hypot(dx, dz);
-  const gap = centerDistance - CAR.radius - BALL.radius;
-  if (gap > KICK.reach) return false;
+  const carFront = geom.carFront ?? CAR.hitbox.halfLength;
+  const ballRadius = geom.ballRadius ?? BALL.radius;
+  const reach = geom.reach ?? KICK.reach;
+  const gap = centerDistance - carFront - ballRadius;
+  if (gap > reach) return false;
   if (centerDistance < 1e-6) return false;
-  const forwardX = -Math.sin(heading);
-  const forwardZ = -Math.cos(heading);
-  const dot = (dx / centerDistance) * forwardX + (dz / centerDistance) * forwardZ;
-  return Math.acos(Math.min(1, Math.max(-1, dot))) <= CONE_HALF;
+  const forward = forwardFromHeading(heading);
+  const dot = (dx / centerDistance) * forward.x + (dz / centerDistance) * forward.z;
+  const cone = (geom.coneHalfAngleDeg ?? KICK.coneHalfAngleDeg) * DEG;
+  return Math.acos(Math.min(1, Math.max(-1, dot))) <= cone;
 }
 
-export function kickApex(power: number): number {
-  const vy = power * KICK.lift;
+export function isInPlanarKickZone(
+  carX: number,
+  carZ: number,
+  heading: number,
+  ballX: number,
+  ballZ: number,
+  geom: KickZoneGeom = {},
+): boolean {
+  return isInKickZone(carX, carZ, heading, ballX, 0, ballZ, { ...geom, ignoreHeight: true });
+}
+
+/** Elevação contextual: rasteira no chão, cabeçada com a bola alta.
+ * `lerp(liftGround, liftHigh, curva(y))` entre `liftBlendFromY` e `liftBlendToY`.
+ * Ease-out no parâmetro normalizado (a 3,5 u o lift fica ≥ 0,35, como o PR 4 pede;
+ * o hermite clássico do GLSL fica em ~0,32 no mesmo ponto). */
+export function kickLift(ballY: number, params = KICK): number {
+  const t = clamp((ballY - params.liftBlendFromY) / (params.liftBlendToY - params.liftBlendFromY), 0, 1);
+  const curved = 1 - (1 - t) * (1 - t);
+  return lerp(params.liftGround, params.liftHigh, curved);
+}
+
+export function dashHopSpeed(ballY: number, inPlanarZone: boolean, params = KICK): number {
+  return inPlanarZone && ballY >= params.liftBlendFromY ? params.highBallHopSpeed : params.hopSpeed;
+}
+
+export function dashImpulse(
+  heading: number,
+  vx: number,
+  vy: number,
+  vz: number,
+  hopSpeed: number,
+  mass = CAR.mass,
+  dashSpeed = KICK.dashSpeed,
+  maxForward = CAR.boostMaxSpeed + KICK.dashMaxExtra,
+): { x: number; y: number; z: number } {
+  const forward = forwardFromHeading(heading);
+  const current = vx * forward.x + vz * forward.z;
+  const next = Math.min(current + dashSpeed, maxForward);
+  const delta = next - current;
+  return {
+    x: forward.x * delta * mass,
+    y: (hopSpeed - vy) * mass,
+    z: forward.z * delta * mass,
+  };
+}
+
+export function recoilImpulse(
+  dirX: number,
+  dirZ: number,
+  power: number,
+  mass = CAR.mass,
+  recoil = KICK.recoil,
+): { x: number; y: number; z: number } {
+  const length = Math.hypot(dirX, dirZ) || 1;
+  const scale = -mass * power * recoil;
+  return { x: (dirX / length) * scale, y: 0, z: (dirZ / length) * scale };
+}
+
+export function kickApex(power: number, lift = KICK.liftHigh): number {
+  const vy = power * lift;
   if (vy <= 0) return 0;
-  return (vy * vy) / (2 * 9.81);
-}
-
-function forwardVector(heading: number) {
-  return { x: -Math.sin(heading), z: -Math.cos(heading) };
+  return (vy * vy) / (2 * SIMULATION.gravity * BALL.gravityScale);
 }
 
 export function kickDirection(
@@ -52,7 +120,7 @@ export function kickDirection(
   const distance = Math.hypot(dx, dz) || 1;
   const normalX = dx / distance;
   const normalZ = dz / distance;
-  const forward = forwardVector(heading);
+  const forward = forwardFromHeading(heading);
   let mixX = forward.x * KICK.headingWeight + normalX * (1 - KICK.headingWeight);
   let mixZ = forward.z * KICK.headingWeight + normalZ * (1 - KICK.headingWeight);
   const length = Math.hypot(mixX, mixZ) || 1;
@@ -96,13 +164,14 @@ export function computeKickTarget(
   powerFactor: number,
 ): KickVelocityTarget | null {
   if (!isInKickZone(carX, carZ, heading, ballX, ballY, ballZ)) return null;
-  const forward = forwardVector(heading);
+  const forward = forwardFromHeading(heading);
   const forwardSpeed = Math.max(0, carVelX * forward.x + carVelZ * forward.z);
   const power = kickPower(forwardSpeed, powerFactor);
   const dir = kickDirection(heading, carX, carZ, ballX, ballZ);
+  const lift = kickLift(ballY);
   return {
     x: dir.x * power,
-    y: Math.max(ballVelY, power * KICK.lift),
+    y: Math.max(ballVelY, power * lift),
     z: dir.z * power,
     power,
   };
@@ -145,33 +214,26 @@ export function stepKickTimer(
   delta: number,
   pressed: boolean,
   inZone: boolean,
-): { timer: KickTimer; fire: boolean; whiff: boolean } {
+): { timer: KickTimer; fire: boolean; dashStarted: boolean } {
   let cooldown = Math.max(0, timer.cooldown - delta);
   let buffer = Math.max(0, timer.buffer - delta);
   let fire = false;
-  let whiff = false;
-  const hadBuffer = timer.buffer > 0;
+  let dashStarted = false;
 
   if (pressed && cooldown <= 0) {
+    dashStarted = true;
+    cooldown = KICK.cooldownSeconds;
+    buffer = KICK.dashSeconds;
     if (inZone) {
       fire = true;
-      cooldown = KICK.cooldownSeconds;
       buffer = 0;
-    } else {
-      buffer = KICK.bufferSeconds;
     }
-  } else if (!fire && hadBuffer) {
-    if (inZone && cooldown <= 0) {
-      fire = true;
-      cooldown = KICK.cooldownSeconds;
-      buffer = 0;
-    } else if (buffer <= 0 && !inZone) {
-      whiff = true;
-      cooldown = KICK.whiffCooldownSeconds;
-    }
+  } else if (buffer > 0 && inZone) {
+    fire = true;
+    buffer = 0;
   }
 
-  return { timer: { cooldown, buffer }, fire, whiff };
+  return { timer: { cooldown, buffer }, fire, dashStarted };
 }
 
 export function kickAimDotFor(difficulty: Difficulty, round: number): number {
@@ -212,4 +274,9 @@ export function isShotOnGoal(ballX: number, ballZ: number, velocityX: number, ve
   if (Math.abs(velocityX) < 1e-6 || Math.sign(velocityX) !== Math.sign(goalX - ballX)) return false;
   const crossingZ = ballZ + velocityZ * ((goalX - ballX) / velocityX);
   return Math.abs(crossingZ) <= goalHalfWidth;
+}
+
+export function visualPitchRad(dashRemaining: number, params = KICK): number {
+  if (dashRemaining <= 0 || params.dashSeconds <= 0) return 0;
+  return smoothstep(0, params.dashSeconds, dashRemaining) * params.visualPitchDeg * DEG;
 }

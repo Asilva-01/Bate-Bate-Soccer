@@ -7,11 +7,13 @@ import { createControlFrame, readGamepadMapping } from './game/input';
 import { clampStickBase, followBase, normalizeStick, stickToDrive, type Point } from './game/touch-stick';
 import { hitActionCluster, type ClusterHit } from './game/action-cluster';
 import { CAMERA, KICK, TOUCH } from './game/config';
+import { tryVibrate, type HapticKind } from './game/haptics';
 
 type AudioPlayer = ReturnType<typeof import('./game/audio').createAudio>;
 
 const CAMERA_STORAGE_KEY = 'bate-bate-soccer:camera';
 const BALL_CAM_STORAGE_KEY = 'bate-bate-soccer:ball-cam';
+const HAPTICS_STORAGE_KEY = 'bate-bate-soccer:haptics';
 const CAMERA_LABELS: Record<CameraPreset, string> = { perto: 'Perto', alta: 'Alta' };
 const IDLE_STICK = { pointerId: -1, base: { x: 0, y: 0 } as Point };
 
@@ -23,6 +25,17 @@ function loadCameraPreset(): CameraPreset {
     // Armazenamento indisponível (modo privativo): usa o padrão.
   }
   return 'perto';
+}
+
+function loadHapticsEnabled(): boolean {
+  try {
+    const stored = window.localStorage.getItem(HAPTICS_STORAGE_KEY);
+    if (stored === '0') return false;
+    if (stored === '1') return true;
+  } catch {
+    // Sem armazenamento: vibração ligada por padrão.
+  }
+  return true;
 }
 
 function loadCameraMode(): CameraMode {
@@ -64,6 +77,9 @@ export default function App() {
   const indicatorLabel = useRef<HTMLSpanElement>(null);
   const wantsFullscreen = useRef(false);
   const [kickCooldown, setKickCooldown] = useState(false);
+  const [kickFlash, setKickFlash] = useState(false);
+  const [haptics, setHaptics] = useState(loadHapticsEnabled);
+  const hapticsEnabled = useRef(haptics);
   const [error, setError] = useState(false);
   const [match, setMatch] = useState<MatchState>({ red: 0, blue: 0, redCars: 1, blueCars: 1, message: 'Faça 3 gols para vencer', finished: false });
   const [difficulty, setDifficulty] = useState<Difficulty>('easy');
@@ -98,6 +114,7 @@ export default function App() {
     restart: () => {},
     resetTiming: () => {},
     sound: (kind) => audio.current?.sound(kind),
+    haptic: (kind: HapticKind) => { tryVibrate(kind, hapticsEnabled.current); },
     indicator: showIndicator,
     onTurboFrame: () => {},
   });
@@ -241,8 +258,10 @@ export default function App() {
         controls.current.restart = game.restart;
         controls.current.sound = (kind) => {
           audio.current?.sound(kind);
-          if (kind === 'kick') {
+          if (kind === 'kick' || kind === 'dash') {
             setKickCooldown(true);
+            setKickFlash(true);
+            window.setTimeout(() => setKickFlash(false), TOUCH.haptics.buttonFlashMs);
             window.setTimeout(() => setKickCooldown(false), KICK.cooldownSeconds * 1000);
           }
         };
@@ -378,6 +397,16 @@ export default function App() {
     setAudioError(false);
     void audio.current?.toggle().then(setSound).catch(() => { setSound(false); setAudioError(true); });
   };
+  const toggleHaptics = () => {
+    const next = !hapticsEnabled.current;
+    hapticsEnabled.current = next;
+    setHaptics(next);
+    try {
+      window.localStorage.setItem(HAPTICS_STORAGE_KEY, next ? '1' : '0');
+    } catch {
+      // Sem armazenamento: a escolha vale só nesta sessão.
+    }
+  };
   const soundLabel = sound ? '♫ SOM LIGADO' : audioReady ? '♫ LIGAR SOM' : 'CARREGANDO SOM…';
   const levelLabel = difficulty === 'easy' ? 'FÁCIL' : difficulty === 'medium' ? 'MÉDIO' : 'DIFÍCIL';
   const shellStyle = { ['--stick-radius' as string]: `${TOUCH.stick.radiusPx}px`, ['--primary-button' as string]: `${TOUCH.primaryButtonPx}px`, ['--secondary-button' as string]: `${TOUCH.secondaryButtonPx}px`, ['--small-button' as string]: `${TOUCH.smallButtonPx}px`, ['--hud-height' as string]: `${TOUCH.hudHeightPx}px`, ['--edge-margin' as string]: `${TOUCH.edgeMarginPx}px`, ['--stick-zone-width' as string]: `${TOUCH.stick.zoneWidthFraction * 100}%` };
@@ -411,6 +440,7 @@ export default function App() {
           <div className="pause-camera" role="group" aria-label="Câmera"><span>CÂMERA</span>{(Object.keys(CAMERA.presets) as CameraPreset[]).map((preset) => <button type="button" key={preset} aria-pressed={cameraPreset === preset} onClick={() => changeCamera(preset)}>{CAMERA_LABELS[preset]}</button>)}</div>
           <button type="button" disabled={rotateBlocked} onClick={() => changePaused(false)}>CONTINUAR</button>
           <button className="pause-sound" type="button" aria-pressed={sound} disabled={!audioReady} onClick={toggleSound}>{soundLabel}</button>
+          <button className="pause-sound" type="button" aria-pressed={haptics} onClick={toggleHaptics}>Vibração</button>
           <button type="button" onClick={openMenu}>MENU</button>
         </div>}
         {!menu && !match.finished && !paused && <div className="touch-controls" aria-label="Controles do carrinho">
@@ -435,7 +465,7 @@ export default function App() {
             <button ref={turboButton} className="turbo-button" type="button" tabIndex={-1} aria-label="Turbo" aria-keyshortcuts="Shift L">TURBO</button>
             <button
               ref={kickButton}
-              className={`kick-button${kickCooldown ? ' kick-button--cooldown' : ''}`}
+              className={`kick-button${kickCooldown ? ' kick-button--cooldown' : ''}${kickFlash ? ' kick-button--flash' : ''}`}
               type="button"
               tabIndex={-1}
               aria-label="Tocar na bola"
