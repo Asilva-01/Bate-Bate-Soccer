@@ -139,8 +139,18 @@ test('clampCameraToArena: fora da parede fica a ≥ 1 u dentro e reporta a dist�
   const clamped = clampCameraToArena(desired, arena, CAMERA.wallMargin);
   expect(Math.abs(clamped.z)).toBeLessThanOrEqual(arena.sideWallZ - CAMERA.wallMargin + 1e-9);
   expect(clamped.lostDistance).toBeGreaterThan(4);
-  const risen = clamped.y + CAMERA.heightGainPerLostDistance * clamped.lostDistance;
-  expect(risen).toBeCloseTo(clamped.y + 0.5 * clamped.lostDistance, 6);
+});
+
+test('a câmera sobe com a distância perdida quando o carro encosta na parede', () => {
+  const preset = 'perto';
+  const { distance, height } = CAMERA.presets[preset];
+  const subject = target({ carX: 0, carY: 0, carZ: arena.sideWallZ - 2, carHeading: 0, ballX: 0, ballZ: 120 });
+  let { rig } = createChaseRig(subject, ASPECT, arena, preset);
+  for (let i = 0; i < 120; i++) rig = stepChaseCamera(rig, subject, 1 / 60, ASPECT, arena, preset).rig;
+  const desired = { x: subject.carX + Math.sin(rig.yaw) * distance, y: subject.carY + height, z: subject.carZ + Math.cos(rig.yaw) * distance };
+  const clamped = clampCameraToArena(desired, arena, CAMERA.wallMargin);
+  expect(clamped.lostDistance).toBeGreaterThan(4);
+  expect(rig.y).toBeGreaterThanOrEqual(height + CAMERA.heightGainPerLostDistance * clamped.lostDistance - 0.05);
 });
 
 test('clampCameraToArena: teto respeitado', () => {

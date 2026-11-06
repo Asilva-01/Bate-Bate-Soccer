@@ -2,7 +2,8 @@ import { expect, test } from 'vitest';
 import { CAR, KEYBOARD } from '../src/game/config.ts';
 import { keyboardTarget, rampAxis } from '../src/game/input.ts';
 import { isShotOnGoal } from '../src/game/kick.ts';
-import { headingDelta, nextForwardSpeed } from '../src/game/vehicle-dynamics.ts';
+import { headingDelta, nextForwardSpeed } from '../src/game/vehicle-controller.ts';
+import { readGamepadMapping } from '../src/game/input.ts';
 
 const STEP = 1 / 60;
 const simulate = (seconds: number, throttle: number, start = 0) => {
@@ -62,9 +63,23 @@ test('teclado sobe em rampa em vez de dar tranco', () => {
 });
 
 test('keyboardTarget combina teclas opostas e aceita WASD e setas', () => {
-  expect(keyboardTarget(new Set(['KeyW', 'KeyD']))).toEqual({ throttle: 1, steer: 1 });
-  expect(keyboardTarget(new Set(['ArrowDown', 'ArrowLeft']))).toEqual({ throttle: -1, steer: -1 });
-  expect(keyboardTarget(new Set(['KeyW', 'ArrowDown']))).toEqual({ throttle: 0, steer: 0 });
+  expect(keyboardTarget(new Set(['KeyW', 'KeyD']))).toEqual({ throttle: 1, steer: 1, boost: false });
+  expect(keyboardTarget(new Set(['ArrowDown', 'ArrowLeft']))).toEqual({ throttle: -1, steer: -1, boost: false });
+  expect(keyboardTarget(new Set(['KeyW', 'ArrowDown']))).toEqual({ throttle: 0, steer: 0, boost: false });
+  expect(keyboardTarget(new Set(['ShiftLeft']))).toEqual({ throttle: 0, steer: 0, boost: true });
+  expect(keyboardTarget(new Set(['KeyL']))).toEqual({ throttle: 0, steer: 0, boost: true });
+});
+
+test('gamepad standard: RT acelera, eixo X vira, B/X turbo, A toque', () => {
+  const pad = {
+    axes: [0.8, 0],
+    buttons: Array.from({ length: 10 }, (_, index) => ({ pressed: index === 1 || index === 0, value: index === 7 ? 0.9 : index === 0 || index === 1 ? 1 : 0 })),
+  };
+  const mapped = readGamepadMapping(pad);
+  expect(mapped.throttle).toBeCloseTo(0.9, 5);
+  expect(mapped.steer).toBeGreaterThan(0.5);
+  expect(mapped.boost).toBe(true);
+  expect(mapped.kick).toBe(true);
 });
 
 test('isShotOnGoal só conta chutes que cruzam a boca do gol', () => {

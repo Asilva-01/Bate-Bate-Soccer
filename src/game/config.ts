@@ -3,21 +3,26 @@ export const CAR = {
   radius: 1.5,
   halfHeight: 0.34,
   bodyOffset: 0.06,
-  maxSpeed: 15,
-  reverseMaxSpeed: 6,
+  maxSpeed: 20,
+  reverseMaxSpeed: 8,
+  boostMaxSpeed: 30,
+  boostAcceleration: 14,
   throttleResponse: 3.8,
   brakeResponse: 8,
   coastResponse: 0.8,
   brakingThreshold: 0.3,
   bodyLinearDamping: 0,
   lateralGrip: 0.78,
-  steeringRate: 2.8,
+  lateralGripPerSecond: 12,
+  steeringRate: 2.6,
   steeringRateAtMaxSpeed: 1.9,
   steeringReferenceSpeed: 2.5,
   reverseSteeringThreshold: 0.4,
   turningGripFactor: 0.68,
   minSteeringScale: 0.55,
   angularDamping: 3.5,
+  hitbox: { halfWidth: 1.45, halfHeight: 0.6, halfLength: 1.75, border: 0.25 },
+  groundEpsilon: 0.05,
   friction: 0.05, // skate × chão (Min) — mantém ≥ 13,5 u/s em 1 s
   contactFriction: 0.7, // carro × bola/paredes (Average), via collision groups
   restitution: 0.38,
@@ -83,6 +88,7 @@ export const KICK = {
 } as const;
 
 export const AI = {
+  seed: 1,
   difficultySpeed: { easy: 0.75, medium: 0.95, hard: 1.15 },
   difficultyAggression: { easy: 0.6, medium: 0.8, hard: 1.0 },
   difficultyReactionTime: { easy: 0.5, medium: 0.4, hard: 0.3 },
@@ -151,6 +157,8 @@ export const STUCK = {
   liftImpulse: 14,
 } as const;
 
+export const SAFETY = { tolerance: 0.8 } as const;
+
 export const SIMULATION = {
   fixedStep: 1 / 60,
   maxFrameDelta: 0.1,
@@ -204,12 +212,20 @@ export const TOUCH = {
     baseFollowFactor: 1.3,
   },
   primaryButtonPx: 88,
+  secondaryButtonPx: 76,
   smallButtonPx: 52,
+  minTargetPx: 48,
+  minGapPx: 12,
   hudHeightPx: 56,
   edgeMarginPx: 12,
+  dualPressSlackPx: 18,
 } as const;
 
 export const KEYBOARD = { steerRampPerSecond: 8, throttleRampPerSecond: 10 } as const;
+
+export const GAMEPAD = { deadzone: 0.15 } as const;
+
+export const TURBO = { start: 33, max: 100, drainPerSecond: 33, regenPerSecond: 10, regenDelaySeconds: 0.6, minToStart: 5 } as const;
 
 export const RENDER = { pixelRatioCoarse: 1.25, pixelRatioFine: 1.5, drawCallBudget: 120 } as const;
 

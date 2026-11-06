@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { ARENA, BALL, CAR } from './config';
 import type { ArenaDimensions } from './arena-dimensions';
+import { yawQuaternion } from './math';
 
 export const COLLISION_GROUP = {
   FLOOR: 1 << 0,
@@ -12,10 +13,6 @@ export const COLLISION_GROUP = {
 
 export function collisionGroups(member: number, filter: number): number {
   return ((member & 0xffff) << 16) | (filter & 0xffff);
-}
-
-function yawRotation(yaw: number) {
-  return { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
 }
 
 function staticCuboid(
@@ -163,7 +160,7 @@ export function createStaticArena(world: RAPIER.World, dims: ArenaDimensions): v
       wallGroups,
       wallRestitution,
       wallFriction,
-      yawRotation(yaw),
+      yawQuaternion(yaw),
     );
   }
 }
@@ -195,6 +192,13 @@ export function addBallToWorld(world: RAPIER.World): { body: RAPIER.RigidBody; c
   return { body, collider };
 }
 
+/** `roundCuboid` conforme o doc v3. Se o teste de estabilidade falhar, volta a `'cylinder'`. */
+export const CAR_COLLIDER_SHAPE: 'roundCuboid' | 'cylinder' = 'roundCuboid';
+
+export function carBodyHeight() {
+  return CAR_COLLIDER_SHAPE === 'roundCuboid' ? CAR.hitbox.halfHeight : CAR.halfHeight + CAR.bodyOffset;
+}
+
 export function addCarToWorld(
   world: RAPIER.World,
   x: number,
@@ -214,8 +218,12 @@ export function addCarToWorld(
       .setAngularDamping(CAR.angularDamping),
   );
   body.setEnabledRotations(false, true, false, true);
+  const { halfWidth, halfHeight, halfLength, border } = CAR.hitbox;
+  const shape = CAR_COLLIDER_SHAPE === 'roundCuboid'
+    ? RAPIER.ColliderDesc.roundCuboid(halfWidth - border, halfHeight - border, halfLength - border, border)
+    : RAPIER.ColliderDesc.cylinder(CAR.halfHeight, CAR.radius);
   const collider = world.createCollider(
-    RAPIER.ColliderDesc.cylinder(CAR.halfHeight, CAR.radius)
+    shape
       .setMass(CAR.mass)
       .setFriction(CAR.contactFriction)
       .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Average)
@@ -226,8 +234,11 @@ export function addCarToWorld(
     body,
   );
   const skateHalfHeight = 0.04;
+  const skate = CAR_COLLIDER_SHAPE === 'roundCuboid'
+    ? RAPIER.ColliderDesc.cuboid(halfWidth, skateHalfHeight, halfLength)
+    : RAPIER.ColliderDesc.cylinder(skateHalfHeight, CAR.radius);
   world.createCollider(
-    RAPIER.ColliderDesc.cylinder(skateHalfHeight, CAR.radius)
+    skate
       .setTranslation(0, skateHalfHeight - y, 0)
       .setDensity(0)
       .setFriction(CAR.friction)

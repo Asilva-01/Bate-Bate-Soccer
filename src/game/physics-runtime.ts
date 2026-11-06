@@ -1,37 +1,48 @@
 ﻿import RAPIER from '@dimforge/rapier3d-compat';
-import * as THREE from 'three';
-import { awardGoal, getScoringSide, opponentCars, opponentSpeed, selectAttacker, type Difficulty } from './match-rules';
+import { opponentCars, type Difficulty, type ScoreState } from './match-rules';
 import { createStuckMonitor } from './stuck-monitor';
-import { AI, BALL, CAR, KICK, MATCH, SIMULATION, STUCK } from './config';
+import { AI, BALL, CAR, MATCH, SIMULATION } from './config';
 import { createKeyboardInput, type ControlFrame } from './input';
-import { getLateralRecoveryImpulse, headingDelta, nextForwardSpeed } from './vehicle-dynamics';
-import { createPose, interpolatePose, type Pose } from './render-interpolation';
-import { containSpatialBody } from './arena-boundaries';
+import { createPose, type Pose } from './render-interpolation';
 import { createArenaDimensions } from './arena-dimensions';
-import { addBallToWorld, addCarToWorld, createStaticArena } from './physics-world';
-import {
-  computeKickTarget,
-  impulseForKickTarget,
-  isInKickZone,
-  isShotOnGoal,
-  kickAimDotFor,
-  kickDirection,
-  kickPowerFactorFor,
-  kickReactionFor,
-  resolveSimultaneousKicks,
-  shouldAiKick,
-  stepKickTimer,
-  type KickTimer,
-  type KickVelocityTarget,
-} from './kick';
+import { addBallToWorld, addCarToWorld, carBodyHeight, createStaticArena } from './physics-world';
+import { kickAimDotFor, kickPowerFactorFor, kickReactionFor, type KickTimer } from './kick';
+import { setVec3, yawQuaternion } from './math';
+import { applyAiControl, createAiOpponents, createAiScratch, resetAiOpponents } from './ai-control';
+import { applyKicks, resetKickState, type KickEvent, type KickStepState } from './kick-step';
+import { handleCollisionEvents } from './collision-events';
+import { applyArenaSafety, clampBodySpeeds } from './arena-safety';
+import { applyGoalToState, applyMatchEvents, createMatchScratch } from './match-events';
+import { syncVisuals, type VisualObject } from './visual-sync';
+import { mulberry32 } from './rng';
+import { driveCommandFromFrame, type DriveCommand } from './controls';
+import { isGrounded, stepVehicle } from './vehicle-controller';
+import { createTurboState, stepTurbo, type TurboState } from './turbo';
 
 const { fixedStep: STEP, maxFrameDelta } = SIMULATION;
-const CAR_HEIGHT = CAR.halfHeight + CAR.bodyOffset;
+const CAR_HEIGHT = carBodyHeight();
 let initialization: Promise<void> | undefined;
 
-export type MatchState = { red: number; blue: number; redCars: number; blueCars: number; message: string; finished: boolean };
-export type KickEvent = { position: THREE.Vector3; power: number; team: 'red' | 'blue'; isPlayer: boolean };
-export async function createPhysics(ball: THREE.Object3D, cars: THREE.Group[], input: ControlFrame, onState: (state: MatchState) => void, difficulty: Difficulty, round: number, isPlaying: () => boolean) {
+export type MatchState = ScoreState;
+export type { KickEvent };
+export type PhysicsOptions = { seed?: number; humanSlots?: number[] };
+
+const translationScratch = { x: 0, y: 0, z: 0 };
+const linvelScratch = { x: 0, y: 0, z: 0 };
+const angvelScratch = { x: 0, y: 0, z: 0 };
+const rotationScratch = { x: 0, y: 0, z: 0, w: 1 };
+const impulseScratch = { x: 0, y: 0, z: 0 };
+
+export async function createPhysics(
+  ball: VisualObject,
+  cars: VisualObject[],
+  input: ControlFrame,
+  onState: (state: MatchState) => void,
+  difficulty: Difficulty,
+  round: number,
+  isPlaying: () => boolean,
+  options?: PhysicsOptions,
+) {
   initialization ??= RAPIER.init();
   await initialization;
   const dims = createArenaDimensions();
@@ -52,39 +63,71 @@ export async function createPhysics(ball: THREE.Object3D, cars: THREE.Group[], i
   const enabled = (index: number) => index === AI.playerIndex || index === AI.opponentIndex || (index === AI.redAllyIndex ? state.redCars > MATCH.startingCars : index - AI.redAllyIndex < state.blueCars);
   const spawn = CAR.spawnPositions;
   const setTeams = () => carBodies.forEach((body, index) => { const active = enabled(index); body.setEnabled(active); cars[index].visible = active; });
-  let heading = cars[0].rotation.y;
-  const aiHeadings = cars.map((car) => car.rotation.y);
-  const opponents = cars.map(() => ({ blockedTime: 0, recoveryTime: 0, attacking: false }));
+  const headings = cars.map((car) => car.rotation.y);
+  const opponents = createAiOpponents(cars.length);
+  const aiScratch = createAiScratch(cars.length);
+  const matchScratch = createMatchScratch(cars.length);
+  const rng = mulberry32(options?.seed ?? AI.seed);
+  const humanSlots = new Set(options?.humanSlots ?? [AI.playerIndex]);
+  const commands: DriveCommand[] = cars.map(() => ({ throttle: 0, steer: 0, boost: false, kick: false }));
+  const turboStates: TurboState[] = cars.map(() => createTurboState());
+  const carVelocitiesBefore = Array.from({ length: cars.length }, () => ({ x: 0, y: 0, z: 0 }));
+  const ballVelocityBefore = { x: 0, y: 0, z: 0 };
   const keyboard = createKeyboardInput(isPlaying);
-  let lastKickPresses = input.kickPresses;
-  const kickTimers: KickTimer[] = cars.map(() => ({ cooldown: 0, buffer: 0 }));
-  const zoneTime = new Float32Array(cars.length);
-  const aiKickLatched = new Array(cars.length).fill(false);
+  const kickState: KickStepState = {
+    kickTimers: cars.map((): KickTimer => ({ cooldown: 0, buffer: 0 })),
+    zoneTime: new Float32Array(cars.length),
+    aiKickLatched: new Array(cars.length).fill(false),
+    lastKickPresses: input.kickPresses,
+  };
   const isActiveAttacker = new Array(cars.length).fill(false);
   const kickAimDot = kickAimDotFor(difficulty, round);
   const kickReaction = kickReactionFor(difficulty, round);
   const aiPowerFactor = kickPowerFactorFor(difficulty, round);
   let accumulator = 0;
-  const stats = { safetyNetActivations: 0, stuckResets: 0, playerBallTouches: 0, playerShotsOnGoal: 0 };
+  let writingLimits = false;
+  let playerBoosting = false;
+  let playerTurboMeter = turboStates[0].meter;
+  let playerGrounded = true;
+  let turboEmptyPulse = false;
+  const stats = { safetyNetActivations: 0, stuckResets: 0, playerBallTouches: 0, playerShotsOnGoal: 0, carSetLinvel: 0 };
+  for (const body of carBodies) {
+    const original = body.setLinvel.bind(body);
+    body.setLinvel = ((vel: { x: number; y: number; z: number }, wake?: boolean) => {
+      if (!writingLimits) stats.carSetLinvel += 1;
+      original(vel, wake ?? true);
+    }) as typeof body.setLinvel;
+  }
+  const withLimits = (fn: () => void) => {
+    writingLimits = true;
+    fn();
+    writingLimits = false;
+  };
   const stuck = createStuckMonitor();
+  const resetTurbo = () => {
+    turboStates.forEach((_, index) => { turboStates[index] = createTurboState(); });
+    playerTurboMeter = turboStates[0].meter;
+    playerBoosting = false;
+    turboEmptyPulse = false;
+  };
   const resetPositions = () => {
     stuck.reset();
     impactRecovery.fill(0);
-    opponents.forEach((opponent) => { opponent.blockedTime = 0; opponent.recoveryTime = 0; opponent.attacking = false; });
-    kickTimers.forEach((timer) => { timer.cooldown = 0; timer.buffer = 0; });
-    zoneTime.fill(0);
-    aiKickLatched.fill(false);
-    lastKickPresses = keyboard.read(input).kickPresses;
-    ballBody.setTranslation({ x: 0, y: BALL.radius + BALL.bodyOffset, z: 0 }, true);
-    ballBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
-    ballBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    heading = -Math.PI / 2;
-    carBodies.forEach((body, index) => {
-      aiHeadings[index] = index === AI.playerIndex || index === AI.redAllyIndex ? -Math.PI / 2 : Math.PI / 2;
-      body.setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), aiHeadings[index]), true);
-      body.setTranslation({ x: spawn[index].x, y: CAR_HEIGHT, z: spawn[index].z }, true);
-      body.setLinvel({ x: 0, y: 0, z: 0 }, true);
-      body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    resetAiOpponents(opponents);
+    resetKickState(kickState);
+    resetTurbo();
+    kickState.lastKickPresses = keyboard.read(input).kickPresses;
+    withLimits(() => {
+      ballBody.setTranslation(setVec3(translationScratch, 0, BALL.radius + BALL.bodyOffset, 0), true);
+      ballBody.setLinvel(setVec3(linvelScratch, 0, 0, 0), true);
+      ballBody.setAngvel(setVec3(angvelScratch, 0, 0, 0), true);
+      carBodies.forEach((body, index) => {
+        headings[index] = index === AI.playerIndex || index === AI.redAllyIndex ? -Math.PI / 2 : Math.PI / 2;
+        body.setRotation(yawQuaternion(headings[index], rotationScratch), true);
+        body.setTranslation(setVec3(translationScratch, spawn[index].x, CAR_HEIGHT, spawn[index].z), true);
+        body.setLinvel(setVec3(linvelScratch, 0, 0, 0), true);
+        body.setAngvel(setVec3(angvelScratch, 0, 0, 0), true);
+      });
     });
     setTeams();
     snapPoses();
@@ -98,7 +141,45 @@ export async function createPhysics(ball: THREE.Object3D, cars: THREE.Group[], i
   const capturePose = (body: RAPIER.RigidBody, pose: Pose) => {
     const p = body.translation();
     const q = body.rotation();
-    pose.set([p.x, p.y, p.z, q.x, q.y, q.z, q.w]);
+    pose[0] = p.x; pose[1] = p.y; pose[2] = p.z;
+    pose[3] = q.x; pose[4] = q.y; pose[5] = q.z; pose[6] = q.w;
+  };
+  const snapshotVelocities = () => {
+    const ballVel = ballBody.linvel();
+    setVec3(ballVelocityBefore, ballVel.x, ballVel.y, ballVel.z);
+    for (let index = 0; index < carBodies.length; index++) {
+      const velocity = carBodies[index].linvel();
+      setVec3(carVelocitiesBefore[index], velocity.x, velocity.y, velocity.z);
+    }
+  };
+  const applyDrive = (index: number, command: DriveCommand) => {
+    const body = carBodies[index];
+    const velocity = body.linvel();
+    const position = body.translation();
+    const turbo = stepTurbo(turboStates[index], command.boost, STEP);
+    turboStates[index] = turbo.state;
+    const grounded = isGrounded(position.y, velocity.y);
+    const step = stepVehicle({
+      vx: velocity.x,
+      vy: velocity.y,
+      vz: velocity.z,
+      y: position.y,
+      heading: headings[index],
+      grounded,
+      boost: turbo.state.meter,
+      dashTime: 0,
+      kickCooldown: 0,
+    }, { ...command, boost: turbo.active }, STEP);
+    headings[index] = step.heading;
+    body.setRotation(yawQuaternion(step.heading, rotationScratch), true);
+    setVec3(impulseScratch, step.impulse.x, step.impulse.y, step.impulse.z);
+    body.applyImpulse(impulseScratch, true);
+    if (index === AI.playerIndex) {
+      if (playerTurboMeter > 0 && turbo.state.meter <= 0) turboEmptyPulse = true;
+      playerTurboMeter = turbo.state.meter;
+      playerBoosting = turbo.active;
+      playerGrounded = grounded;
+    }
   };
   const snapPoses = () => bodies.forEach((body, index) => {
     capturePose(body, currentPoses[index]);
@@ -108,303 +189,70 @@ export async function createPhysics(ball: THREE.Object3D, cars: THREE.Group[], i
     previousPoses[index].set(currentPoses[index]);
     capturePose(body, currentPoses[index]);
   });
-  const sync = (alpha: number) => {
-    interpolatePose(previousPoses[0], currentPoses[0], alpha, interpolated);
-    ball.position.set(interpolated[0], interpolated[1], interpolated[2]);
-    ball.quaternion.set(interpolated[3], interpolated[4], interpolated[5], interpolated[6]);
-    cars.forEach((car, index) => {
-      interpolatePose(previousPoses[index + 1], currentPoses[index + 1], alpha, interpolated);
-      car.position.set(interpolated[0], interpolated[1] - CAR_HEIGHT, interpolated[2]);
-      car.quaternion.set(interpolated[3], interpolated[4], interpolated[5], interpolated[6]);
-    });
-  };
-  // Align the collision bodies with the cars' initial visual headings.
+  const sync = (alpha: number) => syncVisuals(ball, cars, previousPoses, currentPoses, interpolated, alpha, CAR_HEIGHT);
   carBodies.forEach((body, index) => {
-    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), cars[index].rotation.y);
-    body.setRotation(q, true);
+    body.setRotation(yawQuaternion(cars[index].rotation.y, rotationScratch), true);
   });
   snapPoses();
   sync(1);
   return {
-    update(delta: number, onBallHit: (position: THREE.Vector3, strength: number) => void, onKick?: (event: KickEvent) => void) {
+    update(delta: number, onBallHit: (position: KickEvent['position'], strength: number) => void, onKick?: (event: KickEvent) => void) {
       if (state.finished) return;
       accumulator += Math.min(delta, maxFrameDelta);
       while (accumulator >= STEP) {
+        // 5.9: 1. ler ControlFrame e consumir apertos
         const keys = keyboard.read(input, STEP);
-        const car = carBodies[AI.playerIndex];
-        const velocity = car.linvel();
-        const speed = velocity.x * -Math.sin(heading) + velocity.z * -Math.cos(heading);
-        heading += headingDelta(keys.steer, speed, STEP);
-        car.setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), heading), true);
-        const nextDirectionX = -Math.sin(heading);
-        const nextDirectionZ = -Math.cos(heading);
-        const lateralSpeed = velocity.x * nextDirectionZ - velocity.z * nextDirectionX;
-        const grip = CAR.lateralGrip * (1 - (1 - CAR.turningGripFactor) * Math.abs(keys.steer));
-        car.applyImpulse({ x: -nextDirectionZ * lateralSpeed * grip, y: 0, z: nextDirectionX * lateralSpeed * grip }, true);
-        const currentSpeed = velocity.x * nextDirectionX + velocity.z * nextDirectionZ;
-        const nextSpeed = nextForwardSpeed(currentSpeed, keys.throttle, STEP);
-        car.applyImpulse({ x: nextDirectionX * (nextSpeed - currentSpeed) * CAR.mass, y: 0, z: nextDirectionZ * (nextSpeed - currentSpeed) * CAR.mass }, true);
-        // Approach from behind the ball, then push it away from the nearest wall.
-        const target = ballBody.translation();
-        const ballVelocity = ballBody.linvel();
-        const predictedX = THREE.MathUtils.clamp(target.x + ballVelocity.x * AI.predictionSeconds, -dims.goalLineX, dims.goalLineX);
-        const predictedZ = THREE.MathUtils.clamp(target.z + ballVelocity.z * AI.predictionSeconds, -dims.sideWallZ + AI.wallClearance, dims.sideWallZ - AI.wallClearance);
-        for (let index = 1; index < carBodies.length; index++) {
-          isActiveAttacker[index] = false;
-          if (!enabled(index)) continue;
-          const opponent = carBodies[index];
-          const opponentState = opponents[index];
-          const position = opponent.translation();
-          const pushX = index === AI.redAllyIndex ? 1 : -1;
-          const playerPosition = carBodies[0].translation();
-          const playerBlocksGoal = index !== AI.redAllyIndex && playerPosition.x < target.x - AI.playerBlockGoalXMargin && Math.abs(playerPosition.z - target.z) < AI.playerBlockGoalZRange;
-          const aimZ = playerBlocksGoal ? (playerPosition.z >= 0 ? -AI.aimLaneOffset : AI.aimLaneOffset) : 0;
-          const goalX = index === AI.redAllyIndex ? dims.goalLineX : -dims.goalLineX;
-          const pushZ = THREE.MathUtils.clamp((aimZ - target.z) / Math.min(AI.pushDistanceMax, Math.max(AI.pushDistanceMin, Math.abs(goalX - target.x))), -AI.pushZLimit, AI.pushZLimit);
-          const pushLength = Math.hypot(pushX, pushZ);
-          const directionX = pushX / pushLength;
-          const directionZ = pushZ / pushLength;
-          const offset = index === AI.opponentIndex || index === AI.redAllyIndex ? 0 : (index - AI.roleOffsetStartIndex) * AI.roleOffsetSpacing - AI.roleOffsetCenter;
-          const activeTeamCars = carBodies.map((body, carIndex) => ({ body, carIndex })).filter(({ carIndex }) => carIndex > AI.playerIndex && enabled(carIndex));
-          const sameTeamCars = activeTeamCars.filter(({ carIndex }) => index === AI.redAllyIndex ? carIndex === AI.redAllyIndex : carIndex !== AI.redAllyIndex);
-          const attackerIndex = selectAttacker(sameTeamCars.map(({ body }) => {
-            const carPosition = body.translation(); return { x: carPosition.x, y: carPosition.y, z: carPosition.z };
-          }), { x: predictedX, y: target.y, z: predictedZ }, goalX);
-          const isAttacker = sameTeamCars[attackerIndex]?.carIndex === index;
-          isActiveAttacker[index] = isAttacker;
-          const defendX = index === AI.redAllyIndex ? -dims.goalLineX + AI.defenseDepth : dims.goalLineX - AI.defenseDepth;
-          const ballThreatX = (predictedX - defendX) * (index === AI.redAllyIndex ? -1 : 1);
-          const defenseDynamic = ballThreatX > 0 ? THREE.MathUtils.clamp(ballThreatX / (dims.goalLineX * 2), 0, AI.defenseDynamicFactor) : 0;
-          const defendTargetX = defendX + (predictedX - defendX) * defenseDynamic;
-          const approachX = THREE.MathUtils.clamp(isAttacker ? predictedX - directionX * AI.attackRange - directionZ * offset : defendTargetX, -dims.goalLineX + AI.goalClampMargin, dims.goalLineX - AI.goalClampMargin);
-          const approachZ = THREE.MathUtils.clamp(isAttacker ? predictedZ - directionZ * AI.attackRange + directionX * offset : predictedZ * AI.defenderPositionFollowFactor + offset, -dims.sideWallZ + AI.wallClearance, dims.sideWallZ - AI.wallClearance);
-          const approachDistance = Math.hypot(approachX - position.x, approachZ - position.z);
-          const ballDistance = Math.hypot(predictedX - position.x, predictedZ - position.z);
-          if (isAttacker && approachDistance < AI.attackerApproachDistance) opponentState.attacking = true;
-          if (!isAttacker) opponentState.attacking = false;
-          const sidewaysError = Math.abs((position.x - target.x) * directionZ - (position.z - target.z) * directionX);
-          if (ballDistance > AI.attackingMaxBallDistance || (position.x - target.x) * directionX + (position.z - target.z) * directionZ > AI.attackingBehindPlane || (ballDistance < AI.attackingMinBallDistance && sidewaysError > AI.attackingSidewaysError)) opponentState.attacking = false;
-          const dx = (opponentState.attacking ? target.x - directionX * AI.behindBallDistance : approachX) - position.x;
-          const dz = (opponentState.attacking ? target.z - directionZ * AI.behindBallDistance : approachZ) - position.z;
-          const desired = Math.atan2(-dx, -dz);
-          const difference = Math.atan2(Math.sin(desired - aiHeadings[index]), Math.cos(desired - aiHeadings[index]));
-          const velocity = opponent.linvel();
-          const tryingToMove = Math.abs(difference) < AI.blockedHeadingTolerance;
-          opponentState.blockedTime = tryingToMove && Math.hypot(velocity.x, velocity.z) < AI.blockedSpeed ? opponentState.blockedTime + STEP : 0;
-          if (opponentState.blockedTime > AI.blockedSeconds && opponentState.recoveryTime <= 0) {
-            opponentState.recoveryTime = AI.recoverySeconds;
-            opponentState.blockedTime = 0;
-            opponentState.attacking = false;
-            const recoveryAngle = aiHeadings[index] + (Math.random() > 0.5 ? 1 : -1) * (AI.recoveryAngleRange / 2 + Math.random() * AI.recoveryAngleRange / 2);
-            aiHeadings[index] = recoveryAngle;
-          }
-          const recovering = opponentState.recoveryTime > 0;
-          opponentState.recoveryTime = Math.max(0, opponentState.recoveryTime - STEP);
-          if (!recovering) aiHeadings[index] += THREE.MathUtils.clamp(difference, -AI.headingTurnRate * STEP, AI.headingTurnRate * STEP);
-          opponent.setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), aiHeadings[index]), true);
-          const aiCap = opponentSpeed(difficulty, round) * AI.speedMultiplier;
-          const aggressionFactor = isAttacker ? AI.difficultyAggression[difficulty] : 1;
-          const aiForward = isAttacker ? aiCap * aggressionFactor : aiCap * AI.defenderSpeedFactor;
-          const steeringFactor = THREE.MathUtils.clamp(1 - Math.abs(difference) / Math.PI, AI.minSteeringFactor, 1);
-          const recoveryDirection = recovering ? -1 : 1;
-          const recoverySpeed = recovering ? aiCap * 0.55 : aiForward;
-          const commandedSpeed = recoverySpeed * steeringFactor * recoveryDirection;
-          opponent.setLinvel({
-            x: -Math.sin(aiHeadings[index]) * commandedSpeed,
-            y: velocity.y,
-            z: -Math.cos(aiHeadings[index]) * commandedSpeed,
-          }, true);
-        }
-        isActiveAttacker[AI.playerIndex] = true;
-        const ballPos = ballBody.translation();
-        const ballVel = ballBody.linvel();
-        const playerPressed = keys.kickPresses > lastKickPresses;
-        if (playerPressed) lastKickPresses = keys.kickPresses;
-        const kickTargets: KickVelocityTarget[] = [];
-        const kickEvents: KickEvent[] = [];
+        const { command: playerCommand } = driveCommandFromFrame(keys, kickState.lastKickPresses);
+        // 5.9: 2. IA produz DriveCommand
+        applyAiControl(carBodies, ballBody, dims, enabled, headings, opponents, isActiveAttacker, commands, difficulty, round, STEP, rng, aiScratch);
+        // 5.9: 3. stepTurbo e stepVehicle para todos
         for (let index = 0; index < carBodies.length; index++) {
           if (!enabled(index)) continue;
-          const body = carBodies[index];
-          const position = body.translation();
-          const velocity = body.linvel();
-          const angle = index === AI.playerIndex ? heading : aiHeadings[index];
-          const inZone = isInKickZone(position.x, position.z, angle, ballPos.x, ballPos.y, ballPos.z);
-          if (inZone) zoneTime[index] += STEP;
-          else {
-            zoneTime[index] = 0;
-            aiKickLatched[index] = false;
-          }
-          let pressed = false;
-          if (index === AI.playerIndex) {
-            pressed = playerPressed;
-          } else if (isActiveAttacker[index]) {
-            const dir = kickDirection(angle, position.x, position.z, ballPos.x, ballPos.z);
-            const attackDirX = index === AI.redAllyIndex ? 1 : -1;
-            const ownGoalX = attackDirX > 0 ? -dims.goalLineX : dims.goalLineX;
-            const wantsKick = zoneTime[index] >= kickReaction && shouldAiKick(
-              dir.x,
-              dir.z,
-              attackDirX,
-              ballPos.x,
-              ballPos.z,
-              ownGoalX,
-              kickAimDot,
-            );
-            pressed = wantsKick && !aiKickLatched[index];
-            if (wantsKick) aiKickLatched[index] = true;
-          }
-          const kickStep = stepKickTimer(kickTimers[index], STEP, pressed, inZone);
-          kickTimers[index] = kickStep.timer;
-          if (!kickStep.fire) continue;
-          const powerFactor = index === AI.playerIndex ? 1 : aiPowerFactor;
-          const target = computeKickTarget(
-            angle,
-            position.x,
-            position.z,
-            velocity.x,
-            velocity.z,
-            ballPos.x,
-            ballPos.y,
-            ballPos.z,
-            ballVel.x,
-            ballVel.y,
-            ballVel.z,
-            powerFactor,
-          );
-          if (!target) continue;
-          kickTargets.push(target);
-          kickEvents.push({
-            position: new THREE.Vector3(ballPos.x, ballPos.y, ballPos.z),
-            power: target.power,
-            team: index === AI.playerIndex || index === AI.redAllyIndex ? 'red' : 'blue',
-            isPlayer: index === AI.playerIndex,
-          });
+          applyDrive(index, humanSlots.has(index) ? playerCommand : commands[index]);
         }
-        const resolved = resolveSimultaneousKicks(kickTargets);
-        if (resolved) {
-          const impulse = impulseForKickTarget(resolved, ballVel.x, ballVel.y, ballVel.z);
-          ballBody.applyImpulse(impulse, true);
-          if (KICK.recoil > 0) {
-            // reservado para recuo futuro
-          }
-          const event = kickEvents.find((entry) => entry.isPlayer) ?? kickEvents[0];
-          if (event?.isPlayer && isShotOnGoal(ballPos.x, ballPos.z, resolved.x, resolved.z, dims.goalLineX, dims.goalHalfWidth)) stats.playerShotsOnGoal += 1;
-          if (event && onKick) onKick({ ...event, power: resolved.power });
-        }
-        const before = ballBody.linvel();
-        const carVelocitiesBefore = carBodies.map((body) => body.linvel());
-        world.step(events);
-        events.drainCollisionEvents((first, second, started) => {
-          if (!started) return;
-          const firstIndex = carColliderIndices.get(first);
-          const secondIndex = carColliderIndices.get(second);
-          for (const index of [firstIndex, secondIndex]) {
-            if (index === undefined) continue;
-            const after = carBodies[index].linvel();
-            const beforeCar = carVelocitiesBefore[index];
-            const impact = Math.hypot(after.x - beforeCar.x, after.y - beforeCar.y, after.z - beforeCar.z);
-            if (impact >= CAR.impactRecoveryThreshold) impactRecovery[index] = CAR.impactRecoverySeconds;
-          }
-          const hitCar = first === ballCollider.handle ? second : second === ballCollider.handle ? first : undefined;
-          if (hitCar !== undefined && carColliderIndices.has(hitCar)) {
-            if (carColliderIndices.get(hitCar) === AI.playerIndex) stats.playerBallTouches += 1;
-            const velocityAfterHit = ballBody.linvel();
-            const strength = Math.hypot(velocityAfterHit.x - before.x, velocityAfterHit.z - before.z);
-            if (strength > AI.ballHitSoundThreshold) {
-              const position = ballBody.translation();
-              onBallHit(new THREE.Vector3(position.x, position.y, position.z), strength);
-            }
-          }
-        });
-        for (const body of carBodies) {
-          const velocity = body.linvel();
-          const speed = Math.hypot(velocity.x, velocity.z);
-          if (speed > CAR.maxSpeed && speed > 0) body.setLinvel({ x: velocity.x * CAR.maxSpeed / speed, y: velocity.y, z: velocity.z * CAR.maxSpeed / speed }, true);
-        }
-        {
-          const velocity = ballBody.linvel();
-          const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
-          if (speed > BALL.maxSpeed && speed > 0) {
-            const scale = BALL.maxSpeed / speed;
-            ballBody.setLinvel({ x: velocity.x * scale, y: velocity.y * scale, z: velocity.z * scale }, true);
-          }
-        }
-        carBodies.forEach((body, index) => {
-          if (impactRecovery[index] <= 0) return;
-          impactRecovery[index] = Math.max(0, impactRecovery[index] - STEP);
-          const velocity = body.linvel();
-          const angle = index === AI.playerIndex ? heading : aiHeadings[index];
-          const impulse = getLateralRecoveryImpulse(velocity.x, velocity.z, angle, CAR.mass, CAR.impactRecoveryGrip);
-          body.applyImpulse({ x: impulse.x, y: 0, z: impulse.z }, true);
-        });
-        const positionBeforeBounds = ballBody.translation();
-        const velocityBeforeBounds = ballBody.linvel();
-        const boundedBall = containSpatialBody(
-          positionBeforeBounds.x,
-          positionBeforeBounds.y,
-          positionBeforeBounds.z,
-          velocityBeforeBounds.x,
-          velocityBeforeBounds.y,
-          velocityBeforeBounds.z,
-          dims.goalBackX - BALL.radius + 0.8,
-          dims.sideWallZ - BALL.radius + 0.8,
-          BALL.radius - 0.8,
-          dims.ceilingY - BALL.radius + 0.8,
-          BALL.restitution,
+        // 5.9: 4. toques / chute
+        applyKicks(
+          carBodies,
+          ballBody,
+          headings,
+          enabled,
+          isActiveAttacker,
+          kickState,
+          keys.kickPresses,
+          dims,
+          kickAimDot,
+          kickReaction,
+          aiPowerFactor,
+          STEP,
+          stats,
+          onKick,
         );
-        if (boundedBall.x !== positionBeforeBounds.x || boundedBall.y !== positionBeforeBounds.y || boundedBall.z !== positionBeforeBounds.z) {
-          stats.safetyNetActivations += 1;
-          ballBody.setTranslation({ x: boundedBall.x, y: boundedBall.y, z: boundedBall.z }, true);
-          ballBody.setLinvel({ x: boundedBall.velocityX, y: boundedBall.velocityY, z: boundedBall.velocityZ }, true);
-        }
-        carBodies.forEach((body) => {
-          const position = body.translation();
-          const velocity = body.linvel();
-          const bounded = containSpatialBody(
-            position.x,
-            position.y,
-            position.z,
-            velocity.x,
-            velocity.y,
-            velocity.z,
-            dims.goalBackX - CAR.radius + 0.8,
-            dims.sideWallZ - CAR.radius + 0.8,
-            CAR_HEIGHT - 0.8,
-            dims.ceilingY - CAR.halfHeight + 0.8,
-            CAR.restitution,
-          );
-          if (bounded.x !== position.x || bounded.y !== position.y || bounded.z !== position.z) {
-            stats.safetyNetActivations += 1;
-            body.setTranslation({ x: bounded.x, y: bounded.y, z: bounded.z }, true);
-            body.setLinvel({ x: bounded.velocityX, y: bounded.velocityY, z: bounded.velocityZ }, true);
-          }
+        // 5.9: 5. world.step
+        snapshotVelocities();
+        world.step(events);
+        // 5.9: 6. colisões, limites, rede de segurança
+        handleCollisionEvents(events, carBodies, carColliderIndices, ballBody, ballCollider.handle, carVelocitiesBefore, ballVelocityBefore, impactRecovery, stats, onBallHit);
+        withLimits(() => {
+          clampBodySpeeds(carBodies, ballBody);
+          applyArenaSafety(carBodies, ballBody, dims, stats);
         });
-        const ballPosition = ballBody.translation();
-        const scoringSide = getScoringSide(ballPosition, dims);
-        if (scoringSide) {
-          const redGoal = scoringSide === 'blue';
-          state = awardGoal(state, redGoal ? 'red' : 'blue', round);
-          resetPositions(); onState({ ...state });
+        // 5.9: 7. gol e bola presa
+        const matchEvent = applyMatchEvents(carBodies, ballBody, dims, enabled, stuck, STEP, stats, matchScratch);
+        if (matchEvent?.kind === 'goal') {
+          state = applyGoalToState(state, matchEvent.scoringSide, round);
+          resetPositions();
+          onState({ ...state });
           accumulator = 0;
           break;
         }
-        if (stuck.update(ballPosition.x, ballPosition.z, STEP)) {
-          stats.stuckResets += 1;
+        if (matchEvent?.kind === 'stuck') {
           resetPositions();
           state.message = 'Bola presa: jogada reiniciada no centro.';
           onState({ ...state });
           accumulator = 0;
           break;
         }
-        const ballSpeed = Math.hypot(ballBody.linvel().x, ballBody.linvel().y, ballBody.linvel().z);
-        const pinchCars = carBodies.flatMap((body, index) => {
-          if (!enabled(index)) return [];
-          const pos = body.translation();
-          return [{ x: pos.x, z: pos.z, team: index === AI.playerIndex || index === AI.redAllyIndex ? 'red' as const : 'blue' as const }];
-        });
-        if (stuck.updatePinch({ x: ballPosition.x, z: ballPosition.z, speed: ballSpeed }, pinchCars, STEP)) {
-          ballBody.applyImpulse({ x: 0, y: STUCK.liftImpulse, z: 0 }, true);
-        }
+        // 5.9: 8. poses para interpolação
         commitPoses();
         accumulator -= STEP;
       }
@@ -415,10 +263,15 @@ export async function createPhysics(ball: THREE.Object3D, cars: THREE.Group[], i
       const velocity = carBodies[AI.playerIndex].linvel();
       return Math.hypot(velocity.x, velocity.z);
     },
+    playerTurbo() {
+      const pulse = turboEmptyPulse;
+      turboEmptyPulse = false;
+      return { meter: playerTurboMeter, active: playerBoosting, grounded: playerGrounded, emptyPulse: pulse };
+    },
     resetAccumulator() {
       accumulator = 0;
       keyboard.clear();
-      lastKickPresses = keyboard.read(input).kickPresses;
+      kickState.lastKickPresses = keyboard.read(input).kickPresses;
     },
     restart() {
       state = { red: 0, blue: 0, redCars: MATCH.startingCars, blueCars: opponentCars(round), message: 'Faça 3 gols para vencer', finished: false };
@@ -431,5 +284,3 @@ export async function createPhysics(ball: THREE.Object3D, cars: THREE.Group[], i
     },
   };
 }
-
-

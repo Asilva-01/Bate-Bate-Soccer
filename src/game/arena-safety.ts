@@ -1,0 +1,76 @@
+import type RAPIER from '@dimforge/rapier3d-compat';
+import { BALL, CAR } from './config';
+import { ballSafetyBounds, carSafetyBounds, containWithSafetyBounds } from './arena-boundaries';
+import type { ArenaDimensions } from './arena-dimensions';
+import { setVec3, type Vec3 } from './math';
+
+const linvel = { x: 0, y: 0, z: 0 };
+const translation = { x: 0, y: 0, z: 0 };
+
+export function clampBodySpeeds(carBodies: RAPIER.RigidBody[], ballBody: RAPIER.RigidBody) {
+  for (const body of carBodies) {
+    const velocity = body.linvel();
+    const speed = Math.hypot(velocity.x, velocity.z);
+    if (speed > CAR.boostMaxSpeed && speed > 0) {
+      const scale = CAR.boostMaxSpeed / speed;
+      body.setLinvel(setVec3(linvel, velocity.x * scale, velocity.y, velocity.z * scale), true);
+    }
+  }
+  {
+    const velocity = ballBody.linvel();
+    const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
+    if (speed > BALL.maxSpeed && speed > 0) {
+      const scale = BALL.maxSpeed / speed;
+      ballBody.setLinvel(setVec3(linvel, velocity.x * scale, velocity.y * scale, velocity.z * scale), true);
+    }
+  }
+}
+
+function applyBounded(
+  body: RAPIER.RigidBody,
+  bounded: { x: number; y: number; z: number; velocityX: number; velocityY: number; velocityZ: number },
+  position: Vec3,
+) {
+  if (bounded.x === position.x && bounded.y === position.y && bounded.z === position.z) return false;
+  body.setTranslation(setVec3(translation, bounded.x, bounded.y, bounded.z), true);
+  body.setLinvel(setVec3(linvel, bounded.velocityX, bounded.velocityY, bounded.velocityZ), true);
+  return true;
+}
+
+export function applyArenaSafety(
+  carBodies: RAPIER.RigidBody[],
+  ballBody: RAPIER.RigidBody,
+  dims: ArenaDimensions,
+  stats: { safetyNetActivations: number },
+) {
+  const ballBounds = ballSafetyBounds(dims);
+  const carBounds = carSafetyBounds(dims);
+  const positionBeforeBounds = ballBody.translation();
+  const velocityBeforeBounds = ballBody.linvel();
+  const boundedBall = containWithSafetyBounds(
+    positionBeforeBounds.x,
+    positionBeforeBounds.y,
+    positionBeforeBounds.z,
+    velocityBeforeBounds.x,
+    velocityBeforeBounds.y,
+    velocityBeforeBounds.z,
+    ballBounds,
+    BALL.restitution,
+  );
+  if (applyBounded(ballBody, boundedBall, positionBeforeBounds)) stats.safetyNetActivations += 1;
+  for (const body of carBodies) {
+    const position = body.translation();
+    const velocity = body.linvel();
+    const bounded = containWithSafetyBounds(
+      position.x,
+      position.y,
+      position.z,
+      velocity.x,
+      velocity.y,
+      velocity.z,
+      carBounds,
+      CAR.restitution,
+    );
+    if (applyBounded(body, bounded, position)) stats.safetyNetActivations += 1;
+  }
+}
