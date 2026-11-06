@@ -77,6 +77,7 @@ export async function createPhysics(
   const kickState: KickStepState = {
     kickTimers: cars.map((): KickTimer => ({ cooldown: 0, buffer: 0 })),
     zoneTime: new Float32Array(cars.length),
+    dashRemaining: new Float32Array(cars.length),
     aiKickLatched: new Array(cars.length).fill(false),
     lastKickPresses: input.kickPresses,
   };
@@ -267,6 +268,9 @@ export async function createPhysics(
       const pulse = turboEmptyPulse;
       turboEmptyPulse = false;
       return { meter: playerTurboMeter, active: playerBoosting, grounded: playerGrounded, emptyPulse: pulse };
+    },
+    dashRemaining() {
+      return kickState.dashRemaining;
     },
     resetAccumulator() {
       accumulator = 0;

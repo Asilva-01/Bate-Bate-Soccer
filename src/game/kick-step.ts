@@ -1,13 +1,17 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { AI, KICK } from './config';
+import { AI, CAR, KICK } from './config';
 import type { ArenaDimensions } from './arena-dimensions';
 import type { Vec3 } from './math';
 import {
   computeKickTarget,
+  dashHopSpeed,
+  dashImpulse,
   impulseForKickTarget,
   isInKickZone,
+  isInPlanarKickZone,
   isShotOnGoal,
   kickDirection,
+  recoilImpulse,
   resolveSimultaneousKicks,
   shouldAiKick,
   stepKickTimer,
@@ -15,13 +19,27 @@ import {
   type KickVelocityTarget,
 } from './kick';
 
-export type KickEvent = { position: Vec3; power: number; team: 'red' | 'blue'; isPlayer: boolean };
+export type KickEvent = {
+  position: Vec3;
+  power: number;
+  team: 'red' | 'blue';
+  isPlayer: boolean;
+  hit: boolean;
+};
 
 export type KickStepState = {
   kickTimers: KickTimer[];
   zoneTime: Float32Array;
+  dashRemaining: Float32Array;
   aiKickLatched: boolean[];
   lastKickPresses: number;
+};
+
+type PendingKick = {
+  index: number;
+  target: KickVelocityTarget;
+  isPlayer: boolean;
+  team: KickEvent['team'];
 };
 
 export function resetKickState(state: KickStepState) {
@@ -30,6 +48,7 @@ export function resetKickState(state: KickStepState) {
     timer.buffer = 0;
   });
   state.zoneTime.fill(0);
+  state.dashRemaining.fill(0);
   state.aiKickLatched.fill(false);
 }
 
@@ -53,15 +72,20 @@ export function applyKicks(
   const ballVel = ballBody.linvel();
   const playerPressed = kickPresses > state.lastKickPresses;
   if (playerPressed) state.lastKickPresses = kickPresses;
-  const kickTargets: KickVelocityTarget[] = [];
-  const kickEvents: KickEvent[] = [];
+  const pending: PendingKick[] = [];
+  const dashMisses: KickEvent[] = [];
   for (let index = 0; index < carBodies.length; index++) {
-    if (!enabled(index)) continue;
+    if (!enabled(index)) {
+      state.dashRemaining[index] = 0;
+      continue;
+    }
+    state.dashRemaining[index] = Math.max(0, state.dashRemaining[index] - dt);
     const body = carBodies[index];
     const position = body.translation();
     const velocity = body.linvel();
     const angle = headings[index];
     const inZone = isInKickZone(position.x, position.z, angle, ballPos.x, ballPos.y, ballPos.z);
+    const planar = isInPlanarKickZone(position.x, position.z, angle, ballPos.x, ballPos.z);
     if (inZone) state.zoneTime[index] += dt;
     else {
       state.zoneTime[index] = 0;
@@ -88,8 +112,25 @@ export function applyKicks(
     }
     const kickStep = stepKickTimer(state.kickTimers[index], dt, pressed, inZone);
     state.kickTimers[index] = kickStep.timer;
+    const team: KickEvent['team'] = index === AI.playerIndex || index === AI.redAllyIndex ? 'red' : 'blue';
+    const isPlayer = index === AI.playerIndex;
+    if (kickStep.dashStarted) {
+      const hop = dashHopSpeed(ballPos.y, planar);
+      const impulse = dashImpulse(angle, velocity.x, velocity.y, velocity.z, hop);
+      body.applyImpulse(impulse, true);
+      state.dashRemaining[index] = KICK.dashSeconds;
+      if (!kickStep.fire) {
+        dashMisses.push({
+          position: { x: position.x, y: position.y, z: position.z },
+          power: 0,
+          team,
+          isPlayer,
+          hit: false,
+        });
+      }
+    }
     if (!kickStep.fire) continue;
-    const powerFactor = index === AI.playerIndex ? 1 : aiPowerFactor;
+    const powerFactor = isPlayer ? 1 : aiPowerFactor;
     const target = computeKickTarget(
       angle,
       position.x,
@@ -105,23 +146,25 @@ export function applyKicks(
       powerFactor,
     );
     if (!target) continue;
-    kickTargets.push(target);
-    kickEvents.push({
-      position: { x: ballPos.x, y: ballPos.y, z: ballPos.z },
-      power: target.power,
-      team: index === AI.playerIndex || index === AI.redAllyIndex ? 'red' : 'blue',
-      isPlayer: index === AI.playerIndex,
-    });
+    pending.push({ index, target, isPlayer, team });
   }
-  const resolved = resolveSimultaneousKicks(kickTargets);
-  if (resolved) {
-    const impulse = impulseForKickTarget(resolved, ballVel.x, ballVel.y, ballVel.z);
-    ballBody.applyImpulse(impulse, true);
-    if (KICK.recoil > 0) {
-      // reservado para recuo futuro
+  for (const miss of dashMisses) onKick?.(miss);
+  const resolved = resolveSimultaneousKicks(pending.map((entry) => entry.target));
+  if (!resolved) return;
+  const impulse = impulseForKickTarget(resolved, ballVel.x, ballVel.y, ballVel.z);
+  ballBody.applyImpulse(impulse, true);
+  if (KICK.recoil > 0) {
+    for (const entry of pending) {
+      carBodies[entry.index].applyImpulse(recoilImpulse(entry.target.x, entry.target.z, entry.target.power, CAR.mass, KICK.recoil), true);
     }
-    const event = kickEvents.find((entry) => entry.isPlayer) ?? kickEvents[0];
-    if (event?.isPlayer && isShotOnGoal(ballPos.x, ballPos.z, resolved.x, resolved.z, dims.goalLineX, dims.goalHalfWidth)) stats.playerShotsOnGoal += 1;
-    if (event && onKick) onKick({ ...event, power: resolved.power });
   }
+  const event = pending.find((entry) => entry.isPlayer) ?? pending[0];
+  if (event?.isPlayer && isShotOnGoal(ballPos.x, ballPos.z, resolved.x, resolved.z, dims.goalLineX, dims.goalHalfWidth)) stats.playerShotsOnGoal += 1;
+  onKick?.({
+    position: { x: ballPos.x, y: ballPos.y, z: ballPos.z },
+    power: resolved.power,
+    team: event.team,
+    isPlayer: event.isPlayer,
+    hit: true,
+  });
 }

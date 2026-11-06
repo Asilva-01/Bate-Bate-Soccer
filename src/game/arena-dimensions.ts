@@ -39,8 +39,7 @@ export function arenaInvariants(
   if (!(dims.sideWallZ - dims.cornerChamfer > dims.goalHalfWidth)) {
     errors.push('chamfer must not close the goal mouth');
   }
-  const lift = 'liftHigh' in KICK ? Number((KICK as { liftHigh: number }).liftHigh) : KICK.lift;
-  const vy = KICK.maxPower * lift;
+  const vy = KICK.maxPower * KICK.liftHigh;
   const gravity = SIMULATION.gravity * (ball.gravityScale ?? 1);
   const peak = ball.radius + (vy * vy) / (2 * gravity);
   if (!(peak < dims.ceilingY)) errors.push(`strongest touch peak ${peak.toFixed(2)} must stay below ceiling ${dims.ceilingY}`);

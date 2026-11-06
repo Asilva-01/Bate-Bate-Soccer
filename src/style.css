@@ -47,9 +47,10 @@ body.is-playing{overflow:hidden;overscroll-behavior:none}
 .turbo-button.is-pressed,.turbo-button.is-active{filter:brightness(1.25)}
 .kick-button{position:absolute;pointer-events:none;right:0;bottom:0;width:var(--primary-button);height:var(--primary-button);border:3px solid #f3c96c;border-radius:50%;background:linear-gradient(180deg,#bc4938,#8f2f24);color:#fff;font:900 20px/1 'Barlow Condensed',sans-serif;letter-spacing:.08em;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;box-shadow:0 8px 24px #0006}
 .kick-button.is-pressed,.kick-button:active{background:#f3c96c;color:#2a140f}
-.kick-button--cooldown{pointer-events:none;opacity:.72;background:conic-gradient(from 0deg,#8f2f24 0deg,#f3c96c 120deg,#8f2f24 360deg);animation:kick-cooldown var(--kick-cooldown,0.45s) linear 1}
+.kick-button--flash{filter:brightness(1.55);box-shadow:0 0 22px #f3c96ccc}
+.kick-button--cooldown{pointer-events:none;opacity:.72;background:conic-gradient(from 0deg,#8f2f24 0deg,#f3c96c 120deg,#8f2f24 360deg);animation:kick-cooldown var(--kick-cooldown,0.9s) linear 1}
 @keyframes kick-cooldown{from{filter:brightness(1.1)}to{filter:brightness(.85)}}
-@media(prefers-reduced-motion:reduce){.kick-button--cooldown{animation-duration:calc(var(--kick-cooldown,0.45s) * 1.5)}}
+@media(prefers-reduced-motion:reduce){.kick-button--cooldown{animation-duration:calc(var(--kick-cooldown,0.9s) * 1.5)}}
 .ball-indicator{position:absolute;left:0;top:0;z-index:2;pointer-events:none;will-change:transform}
 .ball-indicator[hidden]{display:none}
 .ball-indicator-arrow{position:absolute;left:-16px;top:-16px;width:32px;height:32px;display:grid;place-items:center;color:#ffd24a;font-size:28px;line-height:1;text-shadow:0 0 6px #000a,0 0 2px #000}

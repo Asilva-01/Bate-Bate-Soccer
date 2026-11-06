@@ -3,9 +3,10 @@ import { createArena } from './arena';
 import { createBall, createCar } from './objects';
 import { createPhysics, type ControlFrame, type MatchState, type KickEvent } from './physics';
 import type { Difficulty } from './match-rules';
-import { BALL, CAMERA, CAR, DEBUG, RENDER, SAFETY, TURBO } from './config';
+import { BALL, CAMERA, CAR, DEBUG, KICK, RENDER, SAFETY, TURBO } from './config';
 import { createArenaDimensions } from './arena-dimensions';
-import { isInKickZone } from './kick';
+import type { HapticKind } from './haptics';
+import { isInKickZone, visualPitchRad } from './kick';
 import { createChaseRig, offscreenIndicator, stepChaseCamera, type CameraMode, type CameraPreset, type CameraStep, type CameraTarget, type IndicatorPosition, type ScreenInsets } from './chase-camera';
 import { yawFromQuaternion } from './render-interpolation';
 import { createPerfMonitor } from './perf-monitor';
@@ -17,7 +18,8 @@ export type GameControls = {
   running: boolean;
   restart: () => void;
   resetTiming: () => void;
-  sound: (kind: 'hit' | 'goal' | 'kick') => void;
+  sound: (kind: 'hit' | 'goal' | 'kick' | 'dash') => void;
+  haptic: (kind: HapticKind) => void;
   indicator: (state: BallIndicator | null) => void;
   onTurboFrame: (info: { meter: number; active: boolean }) => void;
 };
@@ -50,6 +52,7 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
   const physics = await createPhysics(ball, carModels, input, (state) => {
     if (state.red > previousRed || state.blue > previousBlue) {
       controls.sound('goal');
+      controls.haptic(state.red > previousRed ? 'goalFor' : 'goalAgainst');
       const scoringSide = state.red > previousRed ? 1 : -1;
       goalCelebration.position.set(scoringSide * (dims.goalLineX + 0.2), dims.goalHeight / 2, 0);
       goalCelebrationAge = 0;
@@ -117,8 +120,15 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
   });
   let nextKickRing = 0;
   const kick = (event: KickEvent) => {
+    if (!event.hit) {
+      if (event.isPlayer) {
+        controls.sound('dash');
+        controls.haptic('dash');
+      }
+      return;
+    }
     controls.sound('kick');
-    if (event.isPlayer && typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate?.(12);
+    if (event.isPlayer) controls.haptic('kickHit');
     const impact = kickRings[nextKickRing++ % kickRings.length];
     impact.ring.position.set(event.position.x, 0.14, event.position.z);
     impact.age = 0;
@@ -178,11 +188,16 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
     if (controls.running) {
       physics.update(delta, hit, kick);
       physicsMonitor.push(performance.now() - frameTime);
+      const dashLeft = physics.dashRemaining();
+      carModels.forEach((car, index) => {
+        const pitch = visualPitchRad(dashLeft[index] ?? 0);
+        if (pitch) car.rotateX(-pitch);
+      });
     }
     lastTurbo = physics.playerTurbo();
     cameraSubject.boosting = lastTurbo.active;
     controls.onTurboFrame(lastTurbo);
-    if (lastTurbo.emptyPulse && typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate?.(10);
+    if (lastTurbo.emptyPulse) controls.haptic('boostEmpty');
     if (goalCelebrationAge < 1) {
       goalCelebrationAge = Math.min(1, goalCelebrationAge + delta * 1.4);
       const progress = goalCelebrationAge;
@@ -222,7 +237,7 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
       impact.age += delta * 2.2;
       if (impact.age >= 1) { impact.ring.visible = false; continue; }
       impact.ring.material.opacity = (1 - impact.age) * 0.85;
-      impact.ring.scale.setScalar(0.85 + impact.age * 2.4 * (impact.power / 14));
+      impact.ring.scale.setScalar(0.85 + impact.age * 2.4 * (impact.power / KICK.basePower));
     }
     for (const impact of impacts) {
       if (!impact.ring.visible) continue;

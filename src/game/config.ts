@@ -70,21 +70,26 @@ export const ARENA = {
 } as const;
 
 export const KICK = {
-  reach: 1.0,
+  reach: 1.2,
   coneHalfAngleDeg: 55,
-  maxBallHeight: 2.2,
-  basePower: 14,
-  speedTransfer: 0.5,
-  maxPower: 22,
+  maxBallHeight: 4.6,
+  basePower: 16,
+  speedTransfer: 0.6,
+  maxPower: 34,
   headingWeight: 0.7,
-  lift: 0.12,
-  cooldownSeconds: 0.45,
-  whiffCooldownSeconds: 0.25,
-  bufferSeconds: 0.12,
+  liftGround: 0.12,
+  liftHigh: 0.45,
+  liftBlendFromY: 2.0,
+  liftBlendToY: 4.6,
+  cooldownSeconds: 0.9,
+  dashSeconds: 0.25,
+  dashSpeed: 8,
+  dashMaxExtra: 4,
+  hopSpeed: 3.5,
+  highBallHopSpeed: 5.5,
+  visualPitchDeg: 25,
   wallGuard: 0.3,
-  recoil: 0,
-  chargeSeconds: 0,
-  coastSeconds: 0,
+  recoil: 0.15,
 } as const;
 
 export const AI = {
@@ -219,6 +224,14 @@ export const TOUCH = {
   hudHeightPx: 56,
   edgeMarginPx: 12,
   dualPressSlackPx: 18,
+  haptics: {
+    kickDash: 8,
+    kickHit: 15,
+    goalFor: [40, 60, 40],
+    goalAgainst: 80,
+    boostEmpty: 10,
+    buttonFlashMs: 140,
+  },
 } as const;
 
 export const KEYBOARD = { steerRampPerSecond: 8, throttleRampPerSecond: 10 } as const;
