@@ -46,3 +46,7 @@ Execute `npm test` para validar regras de gol, IA, progressão, recuperação da
 A configuração de massas, aderência, limites de velocidade, dimensões dos gols e passo fixo está centralizada em `src/game/config.ts`. A IA escolhe o atacante mais próximo entre os carrinhos da própria equipe, enquanto os demais defendem a área do gol.
 
 Colisões fortes ativam uma correção breve de derrapagem, e cada gol dispara uma comemoração visual na trave correspondente.
+
+## Próxima versão do gameplay
+
+A arquitetura da v2 está em [`docs/arquitetura-gameplay-v2.md`](docs/arquitetura-gameplay-v2.md). Ela cobre o botão de chute (Espaço ou botão **CHUTE**, com recarga e a mesma regra para jogador e IA), os times de até três carrinhos com papéis de atacante, apoio e goleiro, e o campo 25% maior com câmera e colliders derivados das dimensões. O documento também traz os riscos, o plano em três PRs pequenos e os critérios de aceite.
