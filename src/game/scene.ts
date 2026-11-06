@@ -77,7 +77,7 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
   });
   let nextImpact = 0;
   let flash = 0;
-  const hit = (position: THREE.Vector3, strength: number) => {
+  const hit = (position: { x: number; y: number; z: number }, strength: number) => {
     controls.sound('hit');
     const impact = impacts[nextImpact++ % impacts.length];
     impact.ring.position.set(position.x, 0.12, position.z);

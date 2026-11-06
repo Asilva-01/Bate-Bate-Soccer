@@ -1,6 +1,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { ARENA, BALL, CAR } from './config';
 import type { ArenaDimensions } from './arena-dimensions';
+import { yawQuaternion } from './math';
 
 export const COLLISION_GROUP = {
   FLOOR: 1 << 0,
@@ -12,10 +13,6 @@ export const COLLISION_GROUP = {
 
 export function collisionGroups(member: number, filter: number): number {
   return ((member & 0xffff) << 16) | (filter & 0xffff);
-}
-
-function yawRotation(yaw: number) {
-  return { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
 }
 
 function staticCuboid(
@@ -163,7 +160,7 @@ export function createStaticArena(world: RAPIER.World, dims: ArenaDimensions): v
       wallGroups,
       wallRestitution,
       wallFriction,
-      yawRotation(yaw),
+      yawQuaternion(yaw),
     );
   }
 }
