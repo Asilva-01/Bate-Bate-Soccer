@@ -6,6 +6,7 @@ import { awardGoal, getScoringSide, opponentCars, opponentSpeed, selectAttacker 
 import { createStuckMonitor } from '../src/game/stuck-monitor.ts';
 import { getLateralRecoveryImpulse } from '../src/game/vehicle-dynamics.ts';
 import { containPlanarBody } from '../src/game/arena-boundaries.ts';
+import { createControlFrame } from '../src/game/input.ts';
 
 const handlers = new Map<string, (event: unknown) => void>();
 let physics: Awaited<ReturnType<typeof createPhysics>> | undefined;
@@ -92,7 +93,7 @@ test('setas movem o carrinho, IA aproxima e reiniciar zera o placar', async () =
     const car = new THREE.Group(); car.position.set(x, 0, z); car.rotation.y = index % 2 ? Math.PI / 2 : -Math.PI / 2; return car;
   });
   states = [];
-  physics = await createPhysics(ball, cars, { forward: false, reverse: false, left: false, right: false, kick: false, kickPresses: 0 }, (state) => states.push(state), 'easy', 1, () => true);
+  physics = await createPhysics(ball, cars, createControlFrame(), (state) => states.push(state), 'easy', 1, () => true);
   const send = (type: string, code: string) => handlers.get(type)?.({ code, altKey: false, ctrlKey: false, metaKey: false, preventDefault() {} });
   send('keydown', 'ArrowLeft');
   for (let i = 0; i < 30; i++) physics?.update(1 / 60, () => {});
@@ -111,4 +112,65 @@ test('setas movem o carrinho, IA aproxima e reiniciar zera o placar', async () =
   physics.restart();
   expect([states.at(-1)?.red, states.at(-1)?.blue, states.at(-1)?.finished]).toEqual([0, 0, false]);
   physics.dispose(); physics = undefined;
+});
+
+test('acelerador cheio em linha reta passa de 13,5 u/s em até 1 s', async () => {
+  const ball = new THREE.Group();
+  const cars = [[-18, 0], [18, 0]].map(([x, z], index) => {
+    const car = new THREE.Group(); car.position.set(x, 0, z); car.rotation.y = index % 2 ? Math.PI / 2 : -Math.PI / 2; return car;
+  });
+  const frame = createControlFrame();
+  const game = await createPhysics(ball, cars, frame, () => {}, 'easy', 1, () => true);
+  frame.throttle = 1;
+  let reachedAt = Infinity;
+  let peak = 0;
+  for (let step = 1; step <= 120; step++) {
+    game.update(1 / 60, () => {});
+    const speed = game.playerSpeed();
+    peak = Math.max(peak, speed);
+    if (speed >= 13.5 && reachedAt === Infinity) reachedAt = step / 60;
+  }
+  expect(reachedAt).toBeLessThanOrEqual(1);
+  expect(peak).toBeLessThanOrEqual(CAR.maxSpeed + 1e-6);
+  expect(Math.abs(cars[0].position.z)).toBeLessThan(0.05);
+  game.dispose();
+});
+
+test('direção analógica: steer parcial gira menos que o total e para a direita diminui o heading', async () => {
+  const turned = async (steer: number) => {
+    const cars = [[-18, 0], [18, 0]].map(([x, z], index) => {
+      const car = new THREE.Group(); car.position.set(x, 0, z); car.rotation.y = index % 2 ? Math.PI / 2 : -Math.PI / 2; return car;
+    });
+    const frame = createControlFrame();
+    const game = await createPhysics(new THREE.Group(), cars, frame, () => {}, 'easy', 1, () => true);
+    frame.throttle = 0.6;
+    frame.steer = steer;
+    for (let step = 0; step < 45; step++) game.update(1 / 60, () => {});
+    const q = cars[0].quaternion;
+    game.dispose();
+    return 2 * Math.atan2(q.y, q.w) + Math.PI / 2;
+  };
+  const half = await turned(0.5);
+  const full = await turned(1);
+  expect(full).toBeLessThan(-0.3);
+  expect(Math.abs(half)).toBeLessThan(Math.abs(full));
+  expect(half).toBeLessThan(0);
+});
+
+test('interpolação entre passos: a pose visual fica entre o passo anterior e o atual', async () => {
+  const cars = [[-18, 0], [18, 0]].map(([x, z], index) => {
+    const car = new THREE.Group(); car.position.set(x, 0, z); car.rotation.y = index % 2 ? Math.PI / 2 : -Math.PI / 2; return car;
+  });
+  const frame = createControlFrame();
+  const game = await createPhysics(new THREE.Group(), cars, frame, () => {}, 'easy', 1, () => true);
+  frame.throttle = 1;
+  for (let step = 0; step < 30; step++) game.update(1 / 60, () => {});
+  const whole = cars[0].position.x;
+  game.update(1 / 60 * 0.5, () => {});
+  const half = cars[0].position.x;
+  game.update(1 / 60 * 0.5, () => {});
+  const next = cars[0].position.x;
+  expect(half).toBeGreaterThan(whole);
+  expect(half).toBeLessThan(next);
+  game.dispose();
 });

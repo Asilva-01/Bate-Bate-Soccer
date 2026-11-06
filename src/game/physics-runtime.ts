@@ -3,13 +3,15 @@ import * as THREE from 'three';
 import { awardGoal, getScoringSide, opponentCars, opponentSpeed, selectAttacker, type Difficulty } from './match-rules';
 import { createStuckMonitor } from './stuck-monitor';
 import { AI, BALL, CAR, FIELD, KICK, MATCH, SIMULATION } from './config';
-import { createKeyboardInput, type DriveInput } from './input';
-import { getLateralRecoveryImpulse } from './vehicle-dynamics';
+import { createKeyboardInput, type ControlFrame } from './input';
+import { getLateralRecoveryImpulse, headingDelta, nextForwardSpeed } from './vehicle-dynamics';
+import { createPose, interpolatePose, type Pose } from './render-interpolation';
 import { containPlanarBody } from './arena-boundaries';
 import {
   computeKickTarget,
   impulseForKickTarget,
   isInKickZone,
+  isShotOnGoal,
   kickAimDotFor,
   kickDirection,
   kickPowerFactorFor,
@@ -27,7 +29,7 @@ let initialization: Promise<void> | undefined;
 
 export type MatchState = { red: number; blue: number; redCars: number; blueCars: number; message: string; finished: boolean };
 export type KickEvent = { position: THREE.Vector3; power: number; team: 'red' | 'blue'; isPlayer: boolean };
-export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], input: DriveInput, onState: (state: MatchState) => void, difficulty: Difficulty, round: number, isPlaying: () => boolean) {
+export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], input: ControlFrame, onState: (state: MatchState) => void, difficulty: Difficulty, round: number, isPlaying: () => boolean) {
   initialization ??= RAPIER.init();
   await initialization;
   const world = new RAPIER.World({ x: 0, y: -SIMULATION.gravity, z: 0 });
@@ -50,9 +52,9 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
   const events = new RAPIER.EventQueue(true);
   const carColliderIndices = new Map<number, number>();
   const carBodies = cars.map((car, index) => {
-    const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(car.position.x, CAR_HEIGHT, car.position.z).setCcdEnabled(true).setLinearDamping(CAR.rollingDrag).setAngularDamping(CAR.angularDamping));
+    const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(car.position.x, CAR_HEIGHT, car.position.z).setCcdEnabled(true).setLinearDamping(CAR.bodyLinearDamping).setAngularDamping(CAR.angularDamping));
     body.setEnabledRotations(false, true, false, true);
-    const collider = world.createCollider(RAPIER.ColliderDesc.cylinder(CAR.halfHeight, CAR.radius).setMass(CAR.mass).setFriction(CAR.friction).setRestitution(CAR.restitution).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), body);
+    const collider = world.createCollider(RAPIER.ColliderDesc.cylinder(CAR.halfHeight, CAR.radius).setMass(CAR.mass).setFriction(CAR.friction).setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min).setRestitution(CAR.restitution).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), body);
     carColliderIndices.set(collider.handle, index);
     return body;
   });
@@ -74,6 +76,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
   const kickReaction = kickReactionFor(difficulty, round);
   const aiPowerFactor = kickPowerFactorFor(difficulty, round);
   let accumulator = 0;
+  const stats = { safetyNetActivations: 0, stuckResets: 0, playerBallTouches: 0, playerShotsOnGoal: 0 };
   const stuck = createStuckMonitor();
   const resetPositions = () => {
     stuck.reset();
@@ -95,19 +98,35 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
       body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     });
     setTeams();
+    snapPoses();
   };
   setTeams();
   onState({ ...state });
-  const sync = () => {
-    const position = ballBody.translation();
-    const rotation = ballBody.rotation();
-    ball.position.set(position.x, position.y, position.z);
-    ball.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
-    carBodies.forEach((body, index) => {
-      const p = body.translation();
-      const q = body.rotation();
-      cars[index].position.set(p.x, p.y - CAR_HEIGHT, p.z);
-      cars[index].quaternion.set(q.x, q.y, q.z, q.w);
+  const bodies = [ballBody, ...carBodies];
+  const previousPoses: Pose[] = bodies.map(() => createPose());
+  const currentPoses: Pose[] = bodies.map(() => createPose());
+  const interpolated = createPose();
+  const capturePose = (body: RAPIER.RigidBody, pose: Pose) => {
+    const p = body.translation();
+    const q = body.rotation();
+    pose.set([p.x, p.y, p.z, q.x, q.y, q.z, q.w]);
+  };
+  const snapPoses = () => bodies.forEach((body, index) => {
+    capturePose(body, currentPoses[index]);
+    previousPoses[index].set(currentPoses[index]);
+  });
+  const commitPoses = () => bodies.forEach((body, index) => {
+    previousPoses[index].set(currentPoses[index]);
+    capturePose(body, currentPoses[index]);
+  });
+  const sync = (alpha: number) => {
+    interpolatePose(previousPoses[0], currentPoses[0], alpha, interpolated);
+    ball.position.set(interpolated[0], interpolated[1], interpolated[2]);
+    ball.quaternion.set(interpolated[3], interpolated[4], interpolated[5], interpolated[6]);
+    cars.forEach((car, index) => {
+      interpolatePose(previousPoses[index + 1], currentPoses[index + 1], alpha, interpolated);
+      car.position.set(interpolated[0], interpolated[1] - CAR_HEIGHT, interpolated[2]);
+      car.quaternion.set(interpolated[3], interpolated[4], interpolated[5], interpolated[6]);
     });
   };
   // Align the collision bodies with the cars' initial visual headings.
@@ -115,34 +134,26 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), cars[index].rotation.y);
     body.setRotation(q, true);
   });
-  sync();
+  snapPoses();
+  sync(1);
   return {
     update(delta: number, onBallHit: (position: THREE.Vector3, strength: number) => void, onKick?: (event: KickEvent) => void) {
       if (state.finished) return;
       accumulator += Math.min(delta, maxFrameDelta);
       while (accumulator >= STEP) {
-        const keys = keyboard.read(input);
-        const forward = Number(keys.forward) - Number(keys.reverse);
-        const turn = Number(keys.left) - Number(keys.right);
+        const keys = keyboard.read(input, STEP);
         const car = carBodies[AI.playerIndex];
         const velocity = car.linvel();
-        const directionX = -Math.sin(heading);
-        const directionZ = -Math.cos(heading);
-        const speed = velocity.x * directionX + velocity.z * directionZ;
-        const steeringScale = turn
-          ? CAR.minSteeringScale + (1 - CAR.minSteeringScale) * THREE.MathUtils.clamp(Math.abs(speed) / CAR.steeringReferenceSpeed, 0, 1)
-          : 0;
-        heading += turn * CAR.steeringRate * steeringScale * STEP * (speed < -CAR.reverseSteeringThreshold ? -1 : 1);
+        const speed = velocity.x * -Math.sin(heading) + velocity.z * -Math.cos(heading);
+        heading += headingDelta(keys.steer, speed, STEP);
         car.setRotation(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), heading), true);
         const nextDirectionX = -Math.sin(heading);
         const nextDirectionZ = -Math.cos(heading);
         const lateralSpeed = velocity.x * nextDirectionZ - velocity.z * nextDirectionX;
-        const grip = turn ? CAR.lateralGrip * CAR.turningGripFactor : CAR.lateralGrip;
+        const grip = CAR.lateralGrip * (1 - (1 - CAR.turningGripFactor) * Math.abs(keys.steer));
         car.applyImpulse({ x: -nextDirectionZ * lateralSpeed * grip, y: 0, z: nextDirectionX * lateralSpeed * grip }, true);
         const currentSpeed = velocity.x * nextDirectionX + velocity.z * nextDirectionZ;
-        const targetSpeed = forward > 0 ? CAR.maxSpeed : forward < 0 ? -CAR.reverseMaxSpeed : 0;
-        const rate = forward && currentSpeed * forward < -CAR.brakingThreshold ? CAR.braking : forward ? CAR.acceleration : CAR.rollingDrag;
-        const nextSpeed = THREE.MathUtils.damp(currentSpeed, targetSpeed, rate / Math.max(CAR.maxSpeed, CAR.reverseMaxSpeed), STEP);
+        const nextSpeed = nextForwardSpeed(currentSpeed, keys.throttle, STEP);
         car.applyImpulse({ x: nextDirectionX * (nextSpeed - currentSpeed) * CAR.mass, y: 0, z: nextDirectionZ * (nextSpeed - currentSpeed) * CAR.mass }, true);
         // Approach from behind the ball, then push it away from the nearest wall.
         const target = ballBody.translation();
@@ -288,6 +299,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
             // reservado para recuo futuro
           }
           const event = kickEvents.find((entry) => entry.isPlayer) ?? kickEvents[0];
+          if (event?.isPlayer && isShotOnGoal(ballPos.x, ballPos.z, resolved.x, resolved.z, FIELD.goalLineX, FIELD.goalHalfWidth)) stats.playerShotsOnGoal += 1;
           if (event && onKick) onKick({ ...event, power: resolved.power });
         }
         const before = ballBody.linvel();
@@ -306,6 +318,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           }
           const hitCar = first === ballCollider.handle ? second : second === ballCollider.handle ? first : undefined;
           if (hitCar !== undefined && carColliderIndices.has(hitCar)) {
+            if (carColliderIndices.get(hitCar) === AI.playerIndex) stats.playerBallTouches += 1;
             const velocityAfterHit = ballBody.linvel();
             const strength = Math.hypot(velocityAfterHit.x - before.x, velocityAfterHit.z - before.z);
             if (strength > AI.ballHitSoundThreshold) {
@@ -347,6 +360,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           BALL.restitution,
         );
         if (boundedBall.x !== positionBeforeBounds.x || boundedBall.z !== positionBeforeBounds.z) {
+          stats.safetyNetActivations += 1;
           ballBody.setTranslation({ x: boundedBall.x, y: positionBeforeBounds.y, z: boundedBall.z }, true);
           ballBody.setLinvel({ x: boundedBall.velocityX, y: velocityBeforeBounds.y, z: boundedBall.velocityZ }, true);
         }
@@ -363,6 +377,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
             CAR.restitution,
           );
           if (bounded.x !== position.x || bounded.z !== position.z) {
+            stats.safetyNetActivations += 1;
             body.setTranslation({ x: bounded.x, y: position.y, z: bounded.z }, true);
             body.setLinvel({ x: bounded.velocityX, y: velocity.y, z: bounded.velocityZ }, true);
           }
@@ -377,15 +392,22 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
           break;
         }
         if (stuck.update(ballPosition.x, ballPosition.z, STEP)) {
+          stats.stuckResets += 1;
           resetPositions();
           state.message = 'Bola presa: jogada reiniciada no centro.';
           onState({ ...state });
           accumulator = 0;
           break;
         }
+        commitPoses();
         accumulator -= STEP;
       }
-      sync();
+      sync(accumulator / STEP);
+    },
+    stats,
+    playerSpeed() {
+      const velocity = carBodies[AI.playerIndex].linvel();
+      return Math.hypot(velocity.x, velocity.z);
     },
     resetAccumulator() {
       accumulator = 0;
@@ -394,7 +416,7 @@ export async function createPhysics(ball: THREE.Group, cars: THREE.Group[], inpu
     },
     restart() {
       state = { red: 0, blue: 0, redCars: MATCH.startingCars, blueCars: opponentCars(round), message: 'Faça 3 gols para vencer', finished: false };
-      accumulator = 0; resetPositions(); onState({ ...state });
+      accumulator = 0; resetPositions(); sync(0); onState({ ...state });
     },
     dispose() {
       keyboard.dispose();
