@@ -29,7 +29,7 @@ Celular (jogue **deitado**; em retrato a partida pausa e pede para girar o apare
 ### Câmera, som e depuração
 
 - No menu de pausa, escolha a câmera **Perto** (padrão, atrás do carrinho) ou **Alta** (visão 3/4, mais ampla). Durante a partida, o botão **BOLA** (ou a tecla **C**) liga a câmera da bola. As duas escolhas ficam salvas no navegador.
-- Clique em **Ligar som** para ativar trilha sintetizada inspirada em rock e efeitos de colisão e gol. O áudio começa após a interação do jogador.
+- Clique em **Ligar som** para baixar e tocar as faixas gravadas (CC0) do menu e da partida, além dos efeitos de colisão, toque e gol. O áudio só começa depois da interação do jogador; os créditos das faixas estão em `public/audio/CREDITOS.md`.
 - Abra o jogo com `?debug=1` na URL para ver o painel de desempenho: FPS (média de 60 quadros e p95), draw calls, triângulos, `pixelRatio`, tempo de `physics.update`, atuações da rede de segurança, reinícios por bola presa, toques na bola, chutes ao gol, turbo, se o carro está no chão e os knobs `CAR.maxSpeed` / `SAFETY.tolerance`.
 
 ## Executar localmente
