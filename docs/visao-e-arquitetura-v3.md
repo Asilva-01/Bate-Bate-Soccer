@@ -215,7 +215,7 @@ senão (ré, 140° de abertura atrás): throttle = −m;  steer = sinal(θ) × c
 - **A partida é só em paisagem** nos aparelhos com toque. Em retrato, com FOV vertical limitado a 75°, sobram ~39° de FOV horizontal: o jogador não veria nada dos lados. Em retrato aparece "Gire o celular para jogar" e a partida pausa sozinha. O menu funciona nas duas orientações.
 - Ao tocar em **ENTRAR EM CAMPO**:
   - **Android/Chrome:** `gameShell.requestFullscreen()` e depois `screen.orientation.lock('landscape')`, os dois com `.catch(() => {})`. A trava de orientação só funciona em tela cheia.
-  - **iPhone:** sem API; a casca usa `position: fixed; inset: 0; height: 100dvh`. O menu sugere "Adicionar à Tela de Início". Um `manifest.webmanifest` estático com `"display": "fullscreen"` e `"orientation": "landscape"` vale para o app instalado no Android; no iOS o app instalado abre sem a barra do Safari.
+  - **iPhone:** sem API; a casca usa `position: fixed; inset: 0; height: 100dvh`. O menu sugere "Adicionar à Tela de Início". Um `manifest.webmanifest` estático com `"display": "fullscreen"` e `"orientation": "landscape"` vale para o app instalado no Android; no iOS o app instalado abre sem a barra do Safari. Entregue em `public/manifest.webmanifest`.
 - Durante a partida, a casca cobre a página inteira: placar, relógio e botões viram HUD sobre a cena. A página atual (cabeçalho, ferramentas, notas) aparece só no menu.
 
 ### 3.5 Háptico
