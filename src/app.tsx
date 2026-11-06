@@ -221,6 +221,9 @@ export default function App() {
       if (player && audio.current === player) audio.current = null;
     };
   }, []);
+  useEffect(() => {
+    void audio.current?.setScene(menu ? 'menu' : 'match');
+  }, [menu, audioReady]);
 
   useEffect(() => {
     if (!container.current) return;
