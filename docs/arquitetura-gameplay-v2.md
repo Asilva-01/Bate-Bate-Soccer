@@ -1,5 +1,7 @@
 # Bate-Bate Soccer — Arquitetura de gameplay v2
 
+> **Nota (06/11/2026): parcialmente substituído por [`visao-e-arquitetura-v3.md`](visao-e-arquitetura-v3.md).** A visão do produto mudou para futebol de carrinhos com câmera atrás do carro, mobile-first. Continuam válidos: os princípios (seção 2), o contador de apertos (3.1), a física do chute (4, como base do TOQUE), o perseguidor único com histerese (5.4, para o 2×2), os colliders de fundo, chanfros e *collision groups* (6.4) e as alavancas de desempenho (8). Ficam obsoletos: o campo ×1,25 e o enquadramento ortográfico (6.1–6.3), os times 3×3 (5.1–5.3 e 5.5), a cortina do gol e o invariante do travessão. Os PRs 2 e 3 deste plano estão cancelados; a seção 8 da v3 traz a tabela completa.
+
 Documento de design para três mudanças pedidas pelo produto: **botão de chute**, **times de 2 a 3 carrinhos** e **campo maior**. Parte do estado atual de `main` (commit `48890f8`, com o ajuste de controles, IA e câmera). Nada aqui troca a stack: continua Three.js + Rapier + React + Vitest.
 
 O objetivo é que cada PR de implementação possa ser feito por quem não participou deste design: as interfaces estão definidas, todos os números ficam em `src/game/config.ts` e cada regra tem um teste unitário associado.
