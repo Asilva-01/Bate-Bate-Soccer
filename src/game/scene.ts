@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { createArena } from './arena';
 import { createBall, createCar } from './objects';
-import { createPhysics, type DriveInput, type MatchState } from './physics';
+import { createPhysics, type DriveInput, type MatchState, type KickEvent } from './physics';
 import type { Difficulty } from './match-rules';
 import { FIELD } from './config';
+import { isInKickZone } from './kick';
 
-export type GameControls = { camera: 'arena' | 'follow' | 'top'; running: boolean; restart: () => void; resetTiming: () => void; sound: (kind: 'hit' | 'goal') => void };
+export type GameControls = { camera: 'arena' | 'follow' | 'top'; running: boolean; restart: () => void; resetTiming: () => void; sound: (kind: 'hit' | 'goal' | 'kick') => void };
 
 export async function createScene(container: HTMLElement, input: DriveInput, controls: GameControls, onState: (state: MatchState) => void, difficulty: Difficulty, round: number) {
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x101b2b);
@@ -68,6 +69,24 @@ export async function createScene(container: HTMLElement, input: DriveInput, con
   ballHalo.rotation.x = -Math.PI / 2;
   ballHalo.position.y = 0.1;
   scene.add(ballHalo);
+  const kickRings = Array.from({ length: 4 }, () => {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.65, 0.82, 32), new THREE.MeshBasicMaterial({ color: 0xff8b5b, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.visible = false;
+    scene.add(ring);
+    return { ring, age: 1, power: 1 };
+  });
+  let nextKickRing = 0;
+  const kick = (event: KickEvent) => {
+    controls.sound('kick');
+    if (event.isPlayer && typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate?.(12);
+    const impact = kickRings[nextKickRing++ % kickRings.length];
+    impact.ring.position.set(event.position.x, 0.14, event.position.z);
+    impact.age = 0;
+    impact.power = event.power;
+    impact.ring.visible = true;
+    impact.ring.scale.setScalar(0.85);
+  };
   const cameraTarget = new THREE.Vector3();
   const resize = () => { const { clientWidth, clientHeight } = container; if (!clientWidth || !clientHeight) return; const aspect = clientWidth / clientHeight; const halfHeight = Math.max(29, 48 / aspect); camera.left = -halfHeight * aspect; camera.right = halfHeight * aspect; camera.top = halfHeight; camera.bottom = -halfHeight; camera.updateProjectionMatrix(); renderer.setSize(clientWidth, clientHeight); };
   const observer = new ResizeObserver(resize); observer.observe(container); resize(); let frame = 0;
@@ -75,7 +94,7 @@ export async function createScene(container: HTMLElement, input: DriveInput, con
     const delta = skipNextDelta ? 0 : Math.min((now - previous) / 1000, 0.1);
     skipNextDelta = false;
     previous = now;
-    if (controls.running) physics.update(delta, hit);
+    if (controls.running) physics.update(delta, hit, kick);
     if (goalCelebrationAge < 1) {
       goalCelebrationAge = Math.min(1, goalCelebrationAge + delta * 1.4);
       const progress = goalCelebrationAge;
@@ -101,7 +120,17 @@ export async function createScene(container: HTMLElement, input: DriveInput, con
     camera.lookAt(cameraTarget);
     ballHalo.position.x = ball.position.x;
     ballHalo.position.z = ball.position.z;
-    ballHalo.scale.setScalar(1 + 0.08 * Math.sin(now * 0.006));
+    const playerCar = carModels[0];
+    const readyToKick = isInKickZone(playerCar.position.x, playerCar.position.z, playerCar.rotation.y, ball.position.x, ball.position.y, ball.position.z);
+    ballHalo.material.color.setHex(readyToKick ? 0xffd15c : 0x69e8ff);
+    ballHalo.scale.setScalar(1 + (readyToKick ? 0.14 : 0.08) * Math.sin(now * 0.006));
+    for (const impact of kickRings) {
+      if (!impact.ring.visible) continue;
+      impact.age += delta * 2.2;
+      if (impact.age >= 1) { impact.ring.visible = false; continue; }
+      impact.ring.material.opacity = (1 - impact.age) * 0.85;
+      impact.ring.scale.setScalar(0.85 + impact.age * 2.4 * (impact.power / 14));
+    }
     for (const impact of impacts) {
       if (!impact.ring.visible) continue;
       impact.age += delta * 2;
