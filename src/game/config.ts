@@ -107,6 +107,7 @@ export const CAR = {
 export const BALL = {
   mass: 1,
   radius: 0.9,
+  maxSpeed: 28,
   restitution: 0.42,
   friction: 0.62,
   linearDamping: 0.3,
@@ -116,6 +117,24 @@ export const BALL = {
   vertexGeometryDetail: 0,
   patchRadius: 0.27,
   patchSurfaceRadius: 0.904,
+} as const;
+
+export const KICK = {
+  reach: 1.0,
+  coneHalfAngleDeg: 55,
+  maxBallHeight: 2.2,
+  basePower: 14,
+  speedTransfer: 0.5,
+  maxPower: 22,
+  headingWeight: 0.7,
+  lift: 0.12,
+  cooldownSeconds: 0.45,
+  whiffCooldownSeconds: 0.25,
+  bufferSeconds: 0.12,
+  wallGuard: 0.3,
+  recoil: 0,
+  chargeSeconds: 0,
+  coastSeconds: 0,
 } as const;
 
 export const AI = {
@@ -165,6 +184,15 @@ export const AI = {
   ballHitSoundThreshold: 0.8,
   wallClearance: 2,
   goalClampMargin: 2,
+  kickAimDot: { easy: 0.55, medium: 0.7, hard: 0.8 },
+  kickAimDotPerRound: 0.02,
+  kickAimDotMax: 0.85,
+  kickPowerFactor: { easy: 0.8, medium: 0.9, hard: 1 },
+  kickPowerFactorPerRound: 0.03,
+  kickPowerFactorMax: 1,
+  kickReaction: { easy: 0.3, medium: 0.18, hard: 0.1 },
+  kickReactionPerRound: -0.02,
+  kickReactionMin: 0.06,
 } as const;
 
 export const STUCK = {

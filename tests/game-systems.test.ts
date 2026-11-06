@@ -92,7 +92,7 @@ test('setas movem o carrinho, IA aproxima e reiniciar zera o placar', async () =
     const car = new THREE.Group(); car.position.set(x, 0, z); car.rotation.y = index % 2 ? Math.PI / 2 : -Math.PI / 2; return car;
   });
   states = [];
-  physics = await createPhysics(ball, cars, { forward: false, reverse: false, left: false, right: false }, (state) => states.push(state), 'easy', 1, () => true);
+  physics = await createPhysics(ball, cars, { forward: false, reverse: false, left: false, right: false, kick: false, kickPresses: 0 }, (state) => states.push(state), 'easy', 1, () => true);
   const send = (type: string, code: string) => handlers.get(type)?.({ code, altKey: false, ctrlKey: false, metaKey: false, preventDefault() {} });
   send('keydown', 'ArrowLeft');
   for (let i = 0; i < 30; i++) physics?.update(1 / 60, () => {});

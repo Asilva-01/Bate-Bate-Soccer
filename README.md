@@ -10,6 +10,7 @@ Escolha entre **Fácil**, **Médio** e **Difícil** no menu e faça três gols n
 
 - **W/S** ou **setas para cima/baixo**: acelerar e dar ré.
 - **A/D** ou **setas para esquerda/direita**: virar.
+- **Espaço** ou **K**: chutar a bola quando ela estiver na frente do carrinho (no celular, use o botão **CHUTE**).
 - **P** ou **Escape**: pausar/continuar.
 - Em telas sensíveis ao toque, use os **botões na tela** (otimizados para polegares).
 
@@ -38,9 +39,9 @@ O workflow em `.github/workflows/pages.yml` gera e publica o jogo quando há um 
 - `src/game/arena.ts`: campo, traves, redes e estádio.
 - `src/game/objects.ts`: modelos da bola e dos carrinhos.
 - `src/game/physics-runtime.ts`: simulação física, controles de jogador, lógica de IA (atacantes/defensores), detecção de gols e recuperação após impactos.
+- `src/game/kick.ts`: zona de chute, força, recarga e impulso (jogador e IA).
 - `src/game/vehicle-dynamics.ts`: correção de derrapagem lateral (lateral grip recovery).
 - `src/game/scene.ts`: câmeras (Arena/Carrinho/Alto), iluminação, renderização e efeitos visuais.
-- `src/game/audio.ts`: música e efeitos sonoros sintetizados.
 - `src/game/match-rules.ts`: progressão de rodadas, dificuldades, seleção de atacante e mensagens de jogo.
 - `src/game/stuck-monitor.ts`: detecção de bola presa perto das bordas.
 - `src/game/config.ts`: parâmetros de física, IA, campo e balanceamento do jogo.

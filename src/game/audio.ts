@@ -77,11 +77,14 @@
         throw error;
       }
     },
-    sound(kind: 'hit' | 'goal') {
+    sound(kind: 'hit' | 'goal' | 'kick') {
       if (kind === 'hit') {
         if (!context || context.currentTime - lastHit < 0.1) return;
         lastHit = context.currentTime;
         tone(160, 0.09, 0.045, 'triangle', 65);
+      } else if (kind === 'kick') {
+        tone(220, 0.07, 0.05, 'triangle', 120);
+        percussion(0.05, 0.035, 1200);
       } else {
         tone(440, 0.28, 0.055, 'triangle', 660);
         tone(660, 0.35, 0.035, 'triangle', 880);
