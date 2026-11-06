@@ -1,25 +1,52 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
-import type { GameControls } from './game/scene';
+import type { BallIndicator, GameControls } from './game/scene';
 import type { MatchState } from './game/physics';
-import type { DriveInput } from './game/physics';
 import type { Difficulty } from './game/match-rules';
-import { KICK } from './game/config';
+import type { CameraPreset } from './game/chase-camera';
+import { createControlFrame } from './game/input';
+import { clampStickBase, followBase, normalizeStick, stickToDrive, type Point } from './game/touch-stick';
+import { CAMERA, KICK, TOUCH } from './game/config';
 
 type AudioPlayer = ReturnType<typeof import('./game/audio').createAudio>;
 
-const directions = [
-  { key: 'left', label: 'Virar à esquerda', symbol: '◀' },
-  { key: 'right', label: 'Virar à direita', symbol: '▶' },
-  { key: 'reverse', label: 'Dar ré', symbol: '▼' },
-  { key: 'forward', label: 'Acelerar', symbol: '▲' },
-] as const;
-type DirectionKey = (typeof directions)[number]['key'];
+const CAMERA_STORAGE_KEY = 'bate-bate-soccer:camera';
+const CAMERA_LABELS: Record<CameraPreset, string> = { perto: 'Perto', alta: 'Alta' };
+const IDLE_STICK = { pointerId: -1, base: { x: 0, y: 0 } as Point };
+
+function loadCameraPreset(): CameraPreset {
+  try {
+    const stored = window.localStorage.getItem(CAMERA_STORAGE_KEY);
+    if (stored && stored in CAMERA.presets) return stored as CameraPreset;
+  } catch {
+    // Armazenamento indisponível (modo privativo): usa o padrão.
+  }
+  return 'perto';
+}
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const list = window.matchMedia(query);
+    const update = () => setMatches(list.matches);
+    update();
+    list.addEventListener('change', update);
+    return () => list.removeEventListener('change', update);
+  }, [query]);
+  return matches;
+}
 
 export default function App() {
+  const shell = useRef<HTMLDivElement>(null);
   const container = useRef<HTMLDivElement>(null);
-  const input = useRef<DriveInput>({ forward: false, reverse: false, left: false, right: false, kick: false, kickPresses: 0 });
-  const pointers = useRef(new Map<number, keyof Pick<DriveInput, 'forward' | 'reverse' | 'left' | 'right'>>());
-  const kickButton = useRef<HTMLButtonElement>(null);
+  const input = useRef(createControlFrame());
+  const stickZone = useRef<HTMLDivElement>(null);
+  const stickBase = useRef<HTMLDivElement>(null);
+  const stickKnob = useRef<HTMLDivElement>(null);
+  const stick = useRef({ ...IDLE_STICK });
+  const indicator = useRef<HTMLDivElement>(null);
+  const indicatorArrow = useRef<HTMLSpanElement>(null);
+  const indicatorLabel = useRef<HTMLSpanElement>(null);
+  const wantsFullscreen = useRef(false);
   const [kickCooldown, setKickCooldown] = useState(false);
   const [error, setError] = useState(false);
   const [match, setMatch] = useState<MatchState>({ red: 0, blue: 0, redCars: 1, blueCars: 1, message: 'Faça 3 gols para vencer', finished: false });
@@ -28,17 +55,39 @@ export default function App() {
   const [session, setSession] = useState(0);
   const [menu, setMenu] = useState(true);
   const [paused, setPaused] = useState(false);
-  const [orientationHintDismissed, setOrientationHintDismissed] = useState(false);
-  const [camera, setCamera] = useState<GameControls['camera']>('arena');
+  const [cameraPreset, setCameraPreset] = useState<CameraPreset>(loadCameraPreset);
   const [sound, setSound] = useState(false);
   const [audioReady, setAudioReady] = useState(false);
   const [audioError, setAudioError] = useState(false);
   const audio = useRef<AudioPlayer | null>(null);
-  const controls = useRef<GameControls>({ camera: 'arena', running: false, restart: () => {}, resetTiming: () => {}, sound: (kind) => audio.current?.sound(kind) });
+  const portrait = useMediaQuery('(pointer: coarse) and (orientation: portrait)');
+  const playing = !menu;
+  const rotateBlocked = playing && portrait;
 
-  const clearInput = useCallback(() => {
-    pointers.current.clear();
-    Object.assign(input.current, { forward: false, reverse: false, left: false, right: false, kick: false });
+  const showIndicator = (state: BallIndicator | null) => {
+    const element = indicator.current;
+    if (!element) return;
+    element.hidden = !state;
+    if (!state) return;
+    element.style.transform = `translate(${state.x.toFixed(1)}px, ${state.y.toFixed(1)}px)`;
+    if (indicatorArrow.current) indicatorArrow.current.style.transform = `rotate(${state.angleRad.toFixed(3)}rad)`;
+    const label = state.distance > CAMERA.indicatorMinDistance ? `${Math.round(state.distance)} m` : '';
+    if (indicatorLabel.current && indicatorLabel.current.textContent !== label) indicatorLabel.current.textContent = label;
+  };
+  const controls = useRef<GameControls>({
+    cameraPreset,
+    running: false,
+    restart: () => {},
+    resetTiming: () => {},
+    sound: (kind) => audio.current?.sound(kind),
+    indicator: showIndicator,
+  });
+
+  const resetStick = useCallback(() => {
+    stick.current = { ...IDLE_STICK };
+    input.current.throttle = 0;
+    input.current.steer = 0;
+    stickZone.current?.classList.remove('stick-zone--active');
   }, []);
   const focusGame = useCallback(() => {
     if (document.activeElement instanceof HTMLElement && document.activeElement !== container.current) {
@@ -48,12 +97,12 @@ export default function App() {
   }, []);
   const changePaused = useCallback((nextPaused: boolean) => {
     if (menu || match.finished) return;
-    clearInput();
+    resetStick();
     controls.current.running = !nextPaused;
     controls.current.resetTiming();
     setPaused(nextPaused);
     if (!nextPaused) focusGame();
-  }, [clearInput, focusGame, match.finished, menu]);
+  }, [resetStick, focusGame, match.finished, menu]);
   const togglePause = () => changePaused(!paused);
 
   useEffect(() => {
@@ -66,13 +115,27 @@ export default function App() {
     const onVisibilityChange = () => {
       if (document.hidden && controls.current.running) changePaused(true);
     };
+    const onFullscreenChange = () => {
+      if (!document.fullscreenElement && wantsFullscreen.current && controls.current.running) changePaused(true);
+    };
     window.addEventListener('keydown', onKeyDown);
     document.addEventListener('visibilitychange', onVisibilityChange);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
     };
   }, [changePaused, match.finished, menu, paused]);
+
+  useEffect(() => {
+    if (rotateBlocked && !match.finished && !paused) changePaused(true);
+  }, [changePaused, match.finished, paused, rotateBlocked]);
+
+  useEffect(() => {
+    document.body.classList.toggle('is-playing', playing);
+    return () => document.body.classList.remove('is-playing');
+  }, [playing]);
 
   useEffect(() => {
     let active = true;
@@ -120,64 +183,142 @@ export default function App() {
       console.error(cause);
       if (active) setError(true);
     });
-    window.addEventListener('blur', clearInput);
-    return () => { active = false; clearInput(); window.removeEventListener('blur', clearInput); dispose?.(); };
-  }, [clearInput, difficulty, round, session]);
+    window.addEventListener('blur', resetStick);
+    return () => { active = false; resetStick(); window.removeEventListener('blur', resetStick); dispose?.(); };
+  }, [resetStick, difficulty, round, session]);
 
-  const press = (event: PointerEvent<HTMLButtonElement>, direction: DirectionKey) => {
+  const placeStick = (event: PointerEvent<HTMLDivElement>, zone: HTMLDivElement) => {
+    const rect = zone.getBoundingClientRect();
+    const radius = TOUCH.stick.radiusPx;
+    const pointer = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    if (stick.current.pointerId !== event.pointerId) {
+      stick.current = { pointerId: event.pointerId, base: clampStickBase(pointer, { left: 0, top: 0, right: rect.width, bottom: rect.height }, radius) };
+    } else {
+      stick.current.base = followBase(stick.current.base, pointer, radius, TOUCH.stick.baseFollowFactor);
+    }
+    const { base } = stick.current;
+    const vector = normalizeStick(pointer.x - base.x, pointer.y - base.y, radius);
+    const drive = stickToDrive(vector);
+    input.current.throttle = drive.throttle;
+    input.current.steer = drive.steer;
+    if (stickBase.current) stickBase.current.style.transform = `translate(${(base.x - radius).toFixed(1)}px, ${(base.y - radius).toFixed(1)}px)`;
+    if (stickKnob.current) stickKnob.current.style.transform = `translate(${(vector.x * radius).toFixed(1)}px, ${(-vector.y * radius).toFixed(1)}px)`;
+  };
+  const stickDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (stick.current.pointerId !== -1) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    pointers.current.set(event.pointerId, direction);
-    input.current[direction] = true;
+    event.currentTarget.classList.add('stick-zone--active');
+    placeStick(event, event.currentTarget);
   };
-  const release = (event: PointerEvent<HTMLButtonElement>) => {
-    const direction = pointers.current.get(event.pointerId);
-    pointers.current.delete(event.pointerId);
-    if (direction) input.current[direction] = [...pointers.current.values()].includes(direction);
+  const stickMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (stick.current.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    placeStick(event, event.currentTarget);
+  };
+  const stickUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (stick.current.pointerId === event.pointerId) resetStick();
   };
   const kickDown = (event: PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
-    input.current.kick = true;
     input.current.kickPresses += 1;
   };
-  const kickUp = () => {
-    input.current.kick = false;
+
+  const enterFullscreen = () => {
+    const element = shell.current;
+    if (!window.matchMedia('(pointer: coarse)').matches || !element || document.fullscreenElement || typeof element.requestFullscreen !== 'function') return;
+    wantsFullscreen.current = true;
+    const orientation = screen.orientation as ScreenOrientation & { lock?: (orientation: 'landscape') => Promise<void> };
+    void element.requestFullscreen({ navigationUI: 'hide' }).then(() => orientation.lock?.('landscape')).catch(() => {});
+  };
+  const leaveFullscreen = () => {
+    wantsFullscreen.current = false;
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
   };
 
-  const start = () => { clearInput(); controls.current.running = true; controls.current.resetTiming(); setPaused(false); setRound(1); setSession((current) => current + 1); setMenu(false); focusGame(); };
-  const openMenu = () => { clearInput(); controls.current.running = false; controls.current.resetTiming(); setPaused(false); setMenu(true); };
+  const start = () => {
+    resetStick();
+    enterFullscreen();
+    controls.current.running = !portrait;
+    controls.current.resetTiming();
+    setPaused(portrait);
+    setRound(1);
+    setSession((current) => current + 1);
+    setMenu(false);
+    focusGame();
+  };
+  const openMenu = () => {
+    resetStick();
+    leaveFullscreen();
+    controls.current.running = false;
+    controls.current.resetTiming();
+    setPaused(false);
+    setMenu(true);
+  };
   const nextRound = () => { controls.current.running = true; controls.current.resetTiming(); setPaused(false); setMatch((current) => ({ ...current, finished: false })); setRound((current) => current + 1); focusGame(); };
-  const changeCamera = (value: GameControls['camera']) => { controls.current.camera = value; setCamera(value); };
-  return <main className="app">
-    <header className="topbar"><a className="brand" href="#inicio"><span className="brand-icon" aria-hidden="true">★</span><span>BATE-BATE <strong>SOCCER</strong></span></a><span className="top-tag">FUTEBOL DE CARRINHO · PARTIDA RÁPIDA</span></header>
+  const changeCamera = (value: CameraPreset) => {
+    controls.current.cameraPreset = value;
+    setCameraPreset(value);
+    try {
+      window.localStorage.setItem(CAMERA_STORAGE_KEY, value);
+    } catch {
+      // Sem armazenamento: a escolha vale só nesta sessão.
+    }
+  };
+  const toggleSound = () => {
+    setAudioError(false);
+    void audio.current?.toggle().then(setSound).catch(() => { setSound(false); setAudioError(true); });
+  };
+  const soundLabel = sound ? '♫ SOM LIGADO' : audioReady ? '♫ LIGAR SOM' : 'CARREGANDO SOM…';
+  const levelLabel = difficulty === 'easy' ? 'FÁCIL' : difficulty === 'medium' ? 'MÉDIO' : 'DIFÍCIL';
+  const shellStyle = { ['--stick-radius' as string]: `${TOUCH.stick.radiusPx}px`, ['--primary-button' as string]: `${TOUCH.primaryButtonPx}px`, ['--hud-height' as string]: `${TOUCH.hudHeightPx}px`, ['--edge-margin' as string]: `${TOUCH.edgeMarginPx}px`, ['--stick-zone-width' as string]: `${TOUCH.stick.zoneWidthFraction * 100}%` };
+
+  return <main className={`app${playing ? ' app--playing' : ''}`}>
+    <header className="topbar" inert={playing}><a className="brand" href="#inicio"><span className="brand-icon" aria-hidden="true">★</span><span>BATE-BATE <strong>SOCCER</strong></span></a><span className="top-tag">FUTEBOL DE CARRINHO · PARTIDA RÁPIDA</span></header>
     <section className="game" id="inicio" aria-labelledby="title">
-      <div className="game-heading"><div><p className="eyebrow">ENTRE EM CAMPO</p><h1 id="title">É HORA DO <span>JOGO.</span></h1></div><p className="game-hint"><strong>PRIMEIRO A MARCAR 3 VENCE</strong><br /><span className="keyboard-control-hint">Use as setas para jogar</span><span className="touch-control-hint">Use os botões na tela</span></p></div>
-      <div className="match-bar" aria-label="Placar"><div className="team red">VOCÊ <small>{match.redCars} {match.redCars === 1 ? 'CARRINHO' : 'CARRINHOS'}</small></div><div className="score" aria-live="polite">{match.red} <span>:</span> {match.blue}</div><div className="team blue">AZUL <small>{match.blueCars} {match.blueCars === 1 ? 'CARRINHO' : 'CARRINHOS'}</small></div></div>
-      <div className="scene-frame"><div ref={container} className="scene" tabIndex={-1} role="img" aria-label="Campo de futebol 3D. Dirija o carrinho vermelho e faça gols na trave azul." />{error && <p className="scene-error" role="alert">Não foi possível carregar o jogo. Confira sua conexão e tente recarregar a página.</p>}
-        <div className="scene-overlay"><span>● {match.message}</span><span>RODADA {round} · {difficulty === 'easy' ? 'FÁCIL' : difficulty === 'medium' ? 'MÉDIO' : 'DIFÍCIL'} · ATAQUE →</span></div>
-        {!menu && !match.finished && !paused && !orientationHintDismissed && <div className="orientation-hint" role="status"><span>Gire o celular para jogar melhor</span><button type="button" aria-label="Dispensar aviso de orientação" onClick={() => setOrientationHintDismissed(true)}>×</button></div>}
-        {menu && <div className="start-menu" role="region" aria-label="Escolha a dificuldade"><div className="menu-card"><p className="menu-kicker">BATE-BATE SOCCER</p><h2>ESCOLHA SEU DESAFIO</h2><p>Comece em 1 contra 1. A cada vitória, o próximo adversário fica mais forte.</p><div className="keyboard-guide"><span><kbd>↑</kbd> acelerar</span><span><kbd>↓</kbd> ré</span><span><kbd>←</kbd> <kbd>→</kbd> virar</span><span><kbd>Espaço</kbd> chutar</span></div><p className="mobile-control-guide">Use os botões na tela, incluindo <strong>CHUTE</strong></p><div className="difficulty" role="group" aria-label="Dificuldade">{([['easy', 'Fácil', 'Para começar'], ['medium', 'Médio', 'Jogo equilibrado'], ['hard', 'Difícil', 'Ritmo intenso']] as const).map(([value, label, description]) => <button type="button" key={value} aria-pressed={difficulty === value} onClick={() => { setRound(1); setDifficulty(value); }}><strong>{label}</strong><small>{description}</small></button>)}</div><button className="play-button" type="button" onClick={start}>ENTRAR EM CAMPO →</button></div></div>}
+      <div className="game-heading" inert={playing}><div><p className="eyebrow">ENTRE EM CAMPO</p><h1 id="title">É HORA DO <span>JOGO.</span></h1></div><p className="game-hint"><strong>PRIMEIRO A MARCAR 3 VENCE</strong><br /><span className="keyboard-control-hint">Use W A S D ou as setas para jogar</span><span className="touch-control-hint">Joystick à esquerda, TOQUE à direita</span></p></div>
+      <div ref={shell} className={`scene-frame${playing ? ' scene-frame--playing' : ''}`} style={shellStyle} onContextMenu={(event) => { if (playing) event.preventDefault(); }}>
+        <div ref={container} className="scene" tabIndex={-1} role="img" aria-label="Campo de futebol 3D visto de trás do carrinho vermelho. Faça gols na trave azul." />
+        {error && <p className="scene-error" role="alert">Não foi possível carregar o jogo. Confira sua conexão e tente recarregar a página.</p>}
+        {playing && <div className="hud">
+          <button className="hud-pause" type="button" aria-label="Pausar" disabled={match.finished || rotateBlocked} onClick={togglePause}>II</button>
+          <div className="match-bar" aria-label="Placar"><div className="team red">VOCÊ <small>{match.redCars} {match.redCars === 1 ? 'CARRINHO' : 'CARRINHOS'}</small></div><div className="score" aria-live="polite">{match.red} <span>:</span> {match.blue}</div><div className="team blue">AZUL <small>{match.blueCars} {match.blueCars === 1 ? 'CARRINHO' : 'CARRINHOS'}</small></div></div>
+          <p className="hud-status">● {match.message} · RODADA {round} · {levelLabel}</p>
+        </div>}
+        <div ref={indicator} className="ball-indicator" aria-hidden="true" hidden><span ref={indicatorArrow} className="ball-indicator-arrow">▶</span><span ref={indicatorLabel} className="ball-indicator-label" /></div>
+        {menu && <div className="start-menu" role="region" aria-label="Escolha a dificuldade"><div className="menu-card"><p className="menu-kicker">BATE-BATE SOCCER</p><h2>ESCOLHA SEU DESAFIO</h2><p>Comece em 1 contra 1. A cada vitória, o próximo adversário fica mais forte.</p><div className="keyboard-guide"><span><kbd>W</kbd> <kbd>↑</kbd> acelerar</span><span><kbd>S</kbd> <kbd>↓</kbd> ré</span><span><kbd>A</kbd> <kbd>D</kbd> <kbd>←</kbd> <kbd>→</kbd> virar</span><span><kbd>Espaço</kbd> toque</span></div><p className="mobile-control-guide">Jogue com o celular deitado: o <strong>joystick</strong> nasce sob o polegar esquerdo e o botão <strong>TOQUE</strong> fica no direito.</p><div className="difficulty" role="group" aria-label="Dificuldade">{([['easy', 'Fácil', 'Para começar'], ['medium', 'Médio', 'Jogo equilibrado'], ['hard', 'Difícil', 'Ritmo intenso']] as const).map(([value, label, description]) => <button type="button" key={value} aria-pressed={difficulty === value} onClick={() => { setRound(1); setDifficulty(value); }}><strong>{label}</strong><small>{description}</small></button>)}</div><button className="play-button" type="button" onClick={start}>ENTRAR EM CAMPO →</button></div></div>}
         {!menu && match.finished && <div className="finish"><strong>{match.message}</strong>{match.red >= 3 ? <button type="button" onClick={nextRound}>PRÓXIMA RODADA →</button> : <button type="button" onClick={() => controls.current.restart()}>TENTAR NOVAMENTE</button>}<button type="button" onClick={openMenu}>VOLTAR AO MENU</button></div>}
-        {paused && !menu && !match.finished && <div className="finish pause-overlay" role="dialog" aria-modal="true" aria-labelledby="pause-title"><strong id="pause-title">PAUSADO</strong><button type="button" onClick={() => changePaused(false)}>CONTINUAR</button><button type="button" onClick={openMenu}>MENU</button></div>}
+        {paused && !menu && !match.finished && <div className="finish pause-overlay" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+          <strong id="pause-title">PAUSADO</strong>
+          <div className="pause-camera" role="group" aria-label="Câmera"><span>CÂMERA</span>{(Object.keys(CAMERA.presets) as CameraPreset[]).map((preset) => <button type="button" key={preset} aria-pressed={cameraPreset === preset} onClick={() => changeCamera(preset)}>{CAMERA_LABELS[preset]}</button>)}</div>
+          <button type="button" disabled={rotateBlocked} onClick={() => changePaused(false)}>CONTINUAR</button>
+          <button className="pause-sound" type="button" aria-pressed={sound} disabled={!audioReady} onClick={toggleSound}>{soundLabel}</button>
+          <button type="button" onClick={openMenu}>MENU</button>
+        </div>}
         {!menu && !match.finished && !paused && <div className="touch-controls" aria-label="Controles do carrinho">
-          <div className="control-group steering">{directions.slice(0, 2).map(({ key, label, symbol }) => <button key={key} type="button" aria-label={label} onPointerDown={(event) => press(event, key)} onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release}>{symbol}</button>)}</div>
-          <div className="control-group pedals">{directions.slice(2).map(({ key, label, symbol }) => <button key={key} type="button" aria-label={label} onPointerDown={(event) => press(event, key)} onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release}><span>{symbol}</span><small>{key === 'forward' ? 'ACELERAR' : 'RÉ'}</small></button>)}</div>
+          <div
+            ref={stickZone}
+            className="stick-zone"
+            onPointerDown={stickDown}
+            onPointerMove={stickMove}
+            onPointerUp={stickUp}
+            onPointerCancel={stickUp}
+            onLostPointerCapture={stickUp}
+          ><div ref={stickBase} className="stick-base"><div ref={stickKnob} className="stick-knob" /></div></div>
           <button
-            ref={kickButton}
             className={`kick-button${kickCooldown ? ' kick-button--cooldown' : ''}`}
             type="button"
-            aria-label="Chutar a bola"
+            tabIndex={-1}
+            aria-label="Tocar na bola"
             aria-keyshortcuts="Space K"
             style={{ ['--kick-cooldown' as string]: `${KICK.cooldownSeconds}s` }}
             onPointerDown={kickDown}
-            onPointerUp={kickUp}
-            onPointerCancel={kickUp}
-            onLostPointerCapture={kickUp}
-          >CHUTE</button>
+          >TOQUE</button>
         </div>}
+        {rotateBlocked && <div className="rotate-notice" role="alert"><span className="rotate-icon" aria-hidden="true">⟳</span><strong>Gire o celular para jogar</strong><small>A partida só funciona com o celular deitado.</small><button type="button" onClick={openMenu}>VOLTAR AO MENU</button></div>}
       </div>
-      <div className="game-tools"><div className="camera-controls" aria-label="Câmera"><span>VISÃO</span>{([['arena', 'Arena'], ['follow', 'Carrinho'], ['top', 'Alto']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={camera === value} onClick={() => changeCamera(value)}>{label}</button>)}</div><button type="button" aria-pressed={paused} disabled={menu || match.finished} onClick={togglePause}>{paused ? 'Continuar' : 'Pausar'}</button><button className="sound-toggle" type="button" aria-pressed={sound} disabled={!audioReady} onClick={() => { setAudioError(false); void audio.current?.toggle().then(setSound).catch(() => { setSound(false); setAudioError(true); }); }}>{sound ? '♫ SOM LIGADO' : audioReady ? '♫ LIGAR SOM' : 'CARREGANDO SOM…'}</button></div>
-      <div className="match-notes"><p className="rules">ALIADO DISPONÍVEL AO MARCAR A PARTIR DA RODADA 2 · CHUTE COM ESPAÇO, K OU BOTÃO CHUTE</p><p className="keyboard-shortcuts"><kbd>↑</kbd> ACELERAR <kbd>↓</kbd> RÉ <kbd>←</kbd> <kbd>→</kbd> VIRAR <kbd>Espaço</kbd> CHUTAR</p></div>{audioError && <p role="alert" className="audio-error">Não foi possível carregar o áudio. O jogo pode continuar sem som; tente recarregar a página.</p>}
+      <div className="game-tools" inert={playing}><button className="sound-toggle" type="button" aria-pressed={sound} disabled={!audioReady} onClick={toggleSound}>{soundLabel}</button></div>
+      <div className="match-notes" inert={playing}><p className="rules">ALIADO DISPONÍVEL AO MARCAR A PARTIR DA RODADA 2 · TOQUE COM ESPAÇO, K OU BOTÃO TOQUE · P OU ESC PAUSA</p><p className="keyboard-shortcuts"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> PILOTAR <kbd>Espaço</kbd> TOQUE</p></div>{audioError && <p role="alert" className="audio-error">Não foi possível carregar o áudio. O jogo pode continuar sem som; tente recarregar a página.</p>}
     </section>
   </main>;
 }

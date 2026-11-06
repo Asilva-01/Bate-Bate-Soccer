@@ -78,18 +78,20 @@ export const CAR = {
   bodyOffset: 0.06,
   maxSpeed: 15,
   reverseMaxSpeed: 6,
-  acceleration: 20,
-  braking: 24,
+  throttleResponse: 3.8,
+  brakeResponse: 8,
+  coastResponse: 0.8,
   brakingThreshold: 0.3,
-  rollingDrag: 2.2,
+  bodyLinearDamping: 0,
   lateralGrip: 0.78,
   steeringRate: 2.8,
+  steeringRateAtMaxSpeed: 1.9,
   steeringReferenceSpeed: 2.5,
   reverseSteeringThreshold: 0.4,
   turningGripFactor: 0.68,
   minSteeringScale: 0.55,
   angularDamping: 3.5,
-  friction: 0.8,
+  friction: 0.05,
   restitution: 0.38,
   impactRecoverySeconds: 0.35,
   impactRecoveryThreshold: 1.5,
@@ -216,3 +218,47 @@ export const MATCH = {
   goalsToWin: 3,
   startingCars: 1,
 } as const;
+
+export const CAMERA = {
+  hFovDeg: 95,
+  vFovMinDeg: 50,
+  vFovMaxDeg: 75,
+  boostFovDeg: 6,
+  presets: {
+    perto: { distance: 8.5, height: 3.6, lookAhead: 5, lookHeight: 1.2 },
+    alta: { distance: 13, height: 9, lookAhead: 6, lookHeight: 0 },
+  },
+  positionResponse: 10,
+  yawResponse: 6,
+  maxYawLagDeg: 35,
+  ballAssist: { maxYawDeg: 15, coneDeg: 70, maxDistance: 35, minDistance: 5, lookRisePerBallY: 0.3 },
+  snapDistance: 30,
+  reducedMotionResponseScale: 0.7,
+  indicatorInsetPx: 56,
+  indicatorMinDistance: 20,
+  indicatorNdcLimit: 0.9,
+  near: 0.1,
+  far: 400,
+} as const;
+
+export const TOUCH = {
+  stick: {
+    zoneWidthFraction: 0.5,
+    radiusPx: 64,
+    deadzone: 0.12,
+    saturation: 0.85,
+    frontHalfAngleDeg: 110,
+    steerFullAngleDeg: 75,
+    reverseSteerFullAngleDeg: 70,
+    baseFollowFactor: 1.3,
+  },
+  primaryButtonPx: 88,
+  hudHeightPx: 56,
+  edgeMarginPx: 12,
+} as const;
+
+export const KEYBOARD = { steerRampPerSecond: 8, throttleRampPerSecond: 10 } as const;
+
+export const RENDER = { pixelRatioCoarse: 1.25, pixelRatioFine: 1.5 } as const;
+
+export const DEBUG = { refreshMs: 250, frameWindow: 60 } as const;

@@ -759,6 +759,8 @@ Cada PR é sequencial (todos mexem em `config.ts` e no runtime), sai com `npm te
 3. **Botão PULO separado no MVP, ou só o TOQUE contextual (dash + cabeçada com pulinho)?**
    *Recomendação: só o TOQUE no MVP.* Um botão a menos no polegar direito, e a "bola alta" já é resolvida pela cabeçada contextual e pela gravidade reduzida. O estado de "no chão / no ar" entra no PR 3, então acrescentar o PULO depois de um *playtest* custa pouco.
 
+> **Decisões confirmadas pelo André em 06/11/2026:** o André aceitou as três recomendações acima. (1) Modo principal 2×2 a partir do PR 7, com o 1×1 como "Duelo". (2) Partida por tempo (2:00) com gol de ouro. (3) Sem botão PULO no MVP. Nenhuma delas é implementada no PR 1; cada uma entra no PR indicado na seção 9.
+
 ---
 
 ## Apêndice A — Knobs em `config.ts` (valores iniciais)

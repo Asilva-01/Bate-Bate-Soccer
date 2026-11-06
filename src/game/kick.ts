@@ -204,3 +204,10 @@ export function shouldAiKick(
   }
   return aimDot >= kickAimDot;
 }
+
+/** Verdadeiro se a bola, com esta velocidade, cruza a linha do gol dentro da boca do gol. */
+export function isShotOnGoal(ballX: number, ballZ: number, velocityX: number, velocityZ: number, goalX: number, goalHalfWidth: number): boolean {
+  if (Math.abs(velocityX) < 1e-6 || Math.sign(velocityX) !== Math.sign(goalX - ballX)) return false;
+  const crossingZ = ballZ + velocityZ * ((goalX - ballX) / velocityX);
+  return Math.abs(crossingZ) <= goalHalfWidth;
+}

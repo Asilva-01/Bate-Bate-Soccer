@@ -8,16 +8,25 @@ Escolha entre **Fácil**, **Médio** e **Difícil** no menu e faça três gols n
 
 ### Controles
 
-- **W/S** ou **setas para cima/baixo**: acelerar e dar ré.
+Teclado (o jogo mostra a câmera atrás do carrinho):
+
+- **W/S** ou **setas para cima/baixo**: acelerar e dar ré (a entrada sobe em rampa, sem tranco).
 - **A/D** ou **setas para esquerda/direita**: virar.
-- **Espaço** ou **K**: chutar a bola quando ela estiver na frente do carrinho (no celular, use o botão **CHUTE**).
-- **P** ou **Escape**: pausar/continuar.
-- Em telas sensíveis ao toque, use os **botões na tela** (otimizados para polegares).
+- **Espaço** ou **K**: TOQUE na bola (o chute atual), quando ela estiver na frente do carrinho.
+- **P** ou **Escape**: pausar/continuar (no menu de pausa também se escolhe a câmera).
 
-### Câmeras e som
+Celular (jogue **deitado**; em retrato a partida pausa e pede para girar o aparelho):
 
-- Alterne entre as câmeras **Arena** (visão ampla), **Carrinho** (acompanha seu carro) e **Alto** (visão aérea) nos controles abaixo do campo.
+- **Joystick flutuante** na metade esquerda da tela: ele nasce onde o polegar toca. Empurrar para a frente acelera (a intensidade é o acelerador, a distância até ~85% do raio é o máximo), para os lados faz a curva e puxar para trás dá ré.
+- **TOQUE** no canto inferior direito: o chute atual do jogo.
+- Ao tocar em **ENTRAR EM CAMPO**, a partida abre em tela cheia (Android) ou cobre a tela toda (iPhone, que não tem a Fullscreen API). Para esconder a barra do Safari, use "Adicionar à Tela de Início".
+- Uma seta amarela na borda da tela indica a bola quando ela sai do campo de visão, com a distância em metros quando passa de 20.
+
+### Câmera, som e depuração
+
+- No menu de pausa, escolha a câmera **Perto** (padrão, atrás do carrinho) ou **Alta** (visão 3/4, mais ampla). A escolha fica salva no navegador.
 - Clique em **Ligar som** para ativar trilha sintetizada inspirada em rock e efeitos de colisão e gol. O áudio começa após a interação do jogador.
+- Abra o jogo com `?debug=1` na URL para ver o painel de desempenho: FPS (média de 60 quadros e p95), draw calls, triângulos, `pixelRatio`, tempo de `physics.update`, atuações da rede de segurança, reinícios por bola presa, toques na bola e chutes ao gol.
 
 ## Executar localmente
 
@@ -38,10 +47,15 @@ O workflow em `.github/workflows/pages.yml` gera e publica o jogo quando há um 
 
 - `src/game/arena.ts`: campo, traves, redes e estádio.
 - `src/game/objects.ts`: modelos da bola e dos carrinhos.
-- `src/game/physics-runtime.ts`: simulação física, controles de jogador, lógica de IA (atacantes/defensores), detecção de gols e recuperação após impactos.
+- `src/game/physics-runtime.ts`: simulação física, controles de jogador, lógica de IA (atacantes/defensores), poses anterior e atual para interpolação, detecção de gols e recuperação após impactos.
 - `src/game/kick.ts`: zona de chute, força, recarga e impulso (jogador e IA).
-- `src/game/vehicle-dynamics.ts`: correção de derrapagem lateral (lateral grip recovery).
-- `src/game/scene.ts`: câmeras (Arena/Carrinho/Alto), iluminação, renderização e efeitos visuais.
+- `src/game/vehicle-dynamics.ts`: respostas de acelerador, freio e inércia, direção analógica e correção de derrapagem lateral.
+- `src/game/chase-camera.ts`: câmera de perseguição (presets `perto`/`alta`, FOV, assistência de bola) e indicador de bola fora da tela.
+- `src/game/touch-stick.ts`: matemática do joystick flutuante (zona morta, ré, base que segue o dedo).
+- `src/game/input.ts`: `ControlFrame` analógico e teclado com rampa.
+- `src/game/render-interpolation.ts`: interpolação das poses entre passos de física.
+- `src/game/perf-monitor.ts`: média móvel de FPS e p95 para o painel `?debug=1`.
+- `src/game/scene.ts`: câmera em perspectiva, iluminação, renderização, indicador de bola e painel de depuração.
 - `src/game/match-rules.ts`: progressão de rodadas, dificuldades, seleção de atacante e mensagens de jogo.
 - `src/game/stuck-monitor.ts`: detecção de bola presa perto das bordas.
 - `src/game/config.ts`: parâmetros de física, IA, campo e balanceamento do jogo.
