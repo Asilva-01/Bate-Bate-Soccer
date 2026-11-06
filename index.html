@@ -3,12 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#080d19" />
+    <meta name="theme-color" content="#101816" />
     <meta name="description" content="Entre na arena neon do Bate-Bate Soccer: controle seu carrinho, dispute partidas de futebol arcade 3D e marque gols para vencer." />
     <link rel="canonical" href="https://asilva-01.github.io/Bate-Bate-Soccer/" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="Bate-Bate Soccer — Futebol de carrinho em arena neon" />
+    <meta property="og:title" content="Bate-Bate Soccer — Futebol de carrinho 3D grátis no navegador" />
     <meta property="og:description" content="Entre na arena neon, pilote seu carrinho e dispute partidas de futebol arcade 3D." />
     <meta property="og:url" content="https://asilva-01.github.io/Bate-Bate-Soccer/" />
     <meta property="og:image" content="https://asilva-01.github.io/Bate-Bate-Soccer/og.jpg" />
@@ -16,10 +18,28 @@
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Carrinhos vermelho e azul disputam a bola em uma arena neon do Bate-Bate Soccer." />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Bate-Bate Soccer — Futebol de carrinho em arena neon" />
+    <meta name="twitter:title" content="Bate-Bate Soccer — Futebol de carrinho 3D grátis no navegador" />
     <meta name="twitter:description" content="Entre na arena neon, pilote seu carrinho e dispute partidas de futebol arcade 3D." />
     <meta name="twitter:image" content="https://asilva-01.github.io/Bate-Bate-Soccer/og.jpg" />
-    <title>Bate-Bate Soccer</title>
+    <title>Bate-Bate Soccer — Futebol de carrinho 3D grátis no navegador</title>
+    <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": ["VideoGame", "WebApplication"],
+  "name": "Bate-Bate Soccer",
+  "url": "https://asilva-01.github.io/Bate-Bate-Soccer/",
+  "image": "https://asilva-01.github.io/Bate-Bate-Soccer/og.jpg",
+  "description": "Futebol de carrinho 3D em arena fechada, para jogar no navegador do celular ou do computador.",
+  "inLanguage": "pt-BR",
+  "genre": ["Esporte", "Arcade"],
+  "gamePlatform": ["Navegador web", "Android", "iOS"],
+  "applicationCategory": "GameApplication",
+  "operatingSystem": "Web",
+  "playMode": "SinglePlayer",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": 0, "priceCurrency": "BRL" }
+}
+    </script>
     <style>
       * { box-sizing: border-box; }
       body { margin: 0; min-width: 320px; background: #101816; color: #f5f7fb; font-family: Arial, sans-serif; }
@@ -33,6 +53,10 @@
     <div id="root">
       <div class="boot-loader" role="status" aria-live="polite">Carregando estádio</div>
     </div>
+    <noscript>
+      <h1>Bate-Bate Soccer</h1>
+      <p>Futebol de carrinho 3D em arena fechada: pilote com o joystick, toque na bola e marque gols contra a IA. Grátis, direto no navegador do celular ou do computador. Ative o JavaScript para jogar.</p>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
