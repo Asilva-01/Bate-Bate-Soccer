@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'rea
 import type { BallIndicator, GameControls } from './game/scene';
 import type { MatchState } from './game/physics';
 import type { Difficulty } from './game/match-rules';
-import type { CameraPreset } from './game/chase-camera';
+import type { CameraMode, CameraPreset } from './game/chase-camera';
 import { createControlFrame } from './game/input';
 import { clampStickBase, followBase, normalizeStick, stickToDrive, type Point } from './game/touch-stick';
 import { CAMERA, KICK, TOUCH } from './game/config';
@@ -10,6 +10,7 @@ import { CAMERA, KICK, TOUCH } from './game/config';
 type AudioPlayer = ReturnType<typeof import('./game/audio').createAudio>;
 
 const CAMERA_STORAGE_KEY = 'bate-bate-soccer:camera';
+const BALL_CAM_STORAGE_KEY = 'bate-bate-soccer:ball-cam';
 const CAMERA_LABELS: Record<CameraPreset, string> = { perto: 'Perto', alta: 'Alta' };
 const IDLE_STICK = { pointerId: -1, base: { x: 0, y: 0 } as Point };
 
@@ -21,6 +22,16 @@ function loadCameraPreset(): CameraPreset {
     // Armazenamento indisponível (modo privativo): usa o padrão.
   }
   return 'perto';
+}
+
+function loadCameraMode(): CameraMode {
+  try {
+    const stored = window.localStorage.getItem(BALL_CAM_STORAGE_KEY);
+    if (stored === 'ball' || stored === 'car') return stored;
+  } catch {
+    // Armazenamento indisponível (modo privativo): usa o padrão.
+  }
+  return 'car';
 }
 
 function useMediaQuery(query: string) {
@@ -56,6 +67,7 @@ export default function App() {
   const [menu, setMenu] = useState(true);
   const [paused, setPaused] = useState(false);
   const [cameraPreset, setCameraPreset] = useState<CameraPreset>(loadCameraPreset);
+  const [cameraMode, setCameraMode] = useState<CameraMode>(loadCameraMode);
   const [sound, setSound] = useState(false);
   const [audioReady, setAudioReady] = useState(false);
   const [audioError, setAudioError] = useState(false);
@@ -76,6 +88,7 @@ export default function App() {
   };
   const controls = useRef<GameControls>({
     cameraPreset,
+    cameraMode,
     running: false,
     restart: () => {},
     resetTiming: () => {},
@@ -104,11 +117,29 @@ export default function App() {
     if (!nextPaused) focusGame();
   }, [resetStick, focusGame, match.finished, menu]);
   const togglePause = () => changePaused(!paused);
+  const changeBallCam = useCallback((value: CameraMode) => {
+    controls.current.cameraMode = value;
+    setCameraMode(value);
+    try {
+      window.localStorage.setItem(BALL_CAM_STORAGE_KEY, value);
+    } catch {
+      // Sem armazenamento: a escolha vale só nesta sessão.
+    }
+  }, []);
+  const toggleBallCam = useCallback(() => {
+    changeBallCam(controls.current.cameraMode === 'ball' ? 'car' : 'ball');
+  }, [changeBallCam]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
-      if (event.repeat || (key !== 'p' && key !== 'escape') || menu || match.finished) return;
+      if (event.repeat || menu) return;
+      if (key === 'c' && !match.finished) {
+        event.preventDefault();
+        toggleBallCam();
+        return;
+      }
+      if ((key !== 'p' && key !== 'escape') || match.finished) return;
       event.preventDefault();
       togglePause();
     };
@@ -126,7 +157,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       document.removeEventListener('fullscreenchange', onFullscreenChange);
     };
-  }, [changePaused, match.finished, menu, paused]);
+  }, [changePaused, match.finished, menu, paused, toggleBallCam]);
 
   useEffect(() => {
     if (rotateBlocked && !match.finished && !paused) changePaused(true);
@@ -271,7 +302,7 @@ export default function App() {
   };
   const soundLabel = sound ? '♫ SOM LIGADO' : audioReady ? '♫ LIGAR SOM' : 'CARREGANDO SOM…';
   const levelLabel = difficulty === 'easy' ? 'FÁCIL' : difficulty === 'medium' ? 'MÉDIO' : 'DIFÍCIL';
-  const shellStyle = { ['--stick-radius' as string]: `${TOUCH.stick.radiusPx}px`, ['--primary-button' as string]: `${TOUCH.primaryButtonPx}px`, ['--hud-height' as string]: `${TOUCH.hudHeightPx}px`, ['--edge-margin' as string]: `${TOUCH.edgeMarginPx}px`, ['--stick-zone-width' as string]: `${TOUCH.stick.zoneWidthFraction * 100}%` };
+  const shellStyle = { ['--stick-radius' as string]: `${TOUCH.stick.radiusPx}px`, ['--primary-button' as string]: `${TOUCH.primaryButtonPx}px`, ['--small-button' as string]: `${TOUCH.smallButtonPx}px`, ['--hud-height' as string]: `${TOUCH.hudHeightPx}px`, ['--edge-margin' as string]: `${TOUCH.edgeMarginPx}px`, ['--stick-zone-width' as string]: `${TOUCH.stick.zoneWidthFraction * 100}%` };
 
   return <main className={`app${playing ? ' app--playing' : ''}`}>
     <header className="topbar" inert={playing}><a className="brand" href="#inicio"><span className="brand-icon" aria-hidden="true">★</span><span>BATE-BATE <strong>SOCCER</strong></span></a><span className="top-tag">FUTEBOL DE CARRINHO · PARTIDA RÁPIDA</span></header>
@@ -284,6 +315,15 @@ export default function App() {
           <button className="hud-pause" type="button" aria-label="Pausar" disabled={match.finished || rotateBlocked} onClick={togglePause}>II</button>
           <div className="match-bar" aria-label="Placar"><div className="team red">VOCÊ <small>{match.redCars} {match.redCars === 1 ? 'CARRINHO' : 'CARRINHOS'}</small></div><div className="score" aria-live="polite">{match.red} <span>:</span> {match.blue}</div><div className="team blue">AZUL <small>{match.blueCars} {match.blueCars === 1 ? 'CARRINHO' : 'CARRINHOS'}</small></div></div>
           <p className="hud-status">● {match.message} · RODADA {round} · {levelLabel}</p>
+          <button
+            className="ball-cam-button"
+            type="button"
+            aria-pressed={cameraMode === 'ball'}
+            aria-label="Câmera na bola"
+            aria-keyshortcuts="C"
+            disabled={match.finished || rotateBlocked}
+            onClick={toggleBallCam}
+          >BOLA</button>
         </div>}
         <div ref={indicator} className="ball-indicator" aria-hidden="true" hidden><span ref={indicatorArrow} className="ball-indicator-arrow">▶</span><span ref={indicatorLabel} className="ball-indicator-label" /></div>
         {menu && <div className="start-menu" role="region" aria-label="Escolha a dificuldade"><div className="menu-card"><p className="menu-kicker">BATE-BATE SOCCER</p><h2>ESCOLHA SEU DESAFIO</h2><p>Comece em 1 contra 1. A cada vitória, o próximo adversário fica mais forte.</p><div className="keyboard-guide"><span><kbd>W</kbd> <kbd>↑</kbd> acelerar</span><span><kbd>S</kbd> <kbd>↓</kbd> ré</span><span><kbd>A</kbd> <kbd>D</kbd> <kbd>←</kbd> <kbd>→</kbd> virar</span><span><kbd>Espaço</kbd> toque</span></div><p className="mobile-control-guide">Jogue com o celular deitado: o <strong>joystick</strong> nasce sob o polegar esquerdo e o botão <strong>TOQUE</strong> fica no direito.</p><div className="difficulty" role="group" aria-label="Dificuldade">{([['easy', 'Fácil', 'Para começar'], ['medium', 'Médio', 'Jogo equilibrado'], ['hard', 'Difícil', 'Ritmo intenso']] as const).map(([value, label, description]) => <button type="button" key={value} aria-pressed={difficulty === value} onClick={() => { setRound(1); setDifficulty(value); }}><strong>{label}</strong><small>{description}</small></button>)}</div><button className="play-button" type="button" onClick={start}>ENTRAR EM CAMPO →</button></div></div>}
@@ -318,7 +358,7 @@ export default function App() {
         {rotateBlocked && <div className="rotate-notice" role="alert"><span className="rotate-icon" aria-hidden="true">⟳</span><strong>Gire o celular para jogar</strong><small>A partida só funciona com o celular deitado.</small><button type="button" onClick={openMenu}>VOLTAR AO MENU</button></div>}
       </div>
       <div className="game-tools" inert={playing}><button className="sound-toggle" type="button" aria-pressed={sound} disabled={!audioReady} onClick={toggleSound}>{soundLabel}</button></div>
-      <div className="match-notes" inert={playing}><p className="rules">ALIADO DISPONÍVEL AO MARCAR A PARTIR DA RODADA 2 · TOQUE COM ESPAÇO, K OU BOTÃO TOQUE · P OU ESC PAUSA</p><p className="keyboard-shortcuts"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> PILOTAR <kbd>Espaço</kbd> TOQUE</p></div>{audioError && <p role="alert" className="audio-error">Não foi possível carregar o áudio. O jogo pode continuar sem som; tente recarregar a página.</p>}
+      <div className="match-notes" inert={playing}><p className="rules">ALIADO DISPONÍVEL AO MARCAR A PARTIR DA RODADA 2 · TOQUE COM ESPAÇO, K OU BOTÃO TOQUE · C CÂMERA DA BOLA · P OU ESC PAUSA</p><p className="keyboard-shortcuts"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> PILOTAR <kbd>Espaço</kbd> TOQUE <kbd>C</kbd> BOLA</p></div>{audioError && <p role="alert" className="audio-error">Não foi possível carregar o áudio. O jogo pode continuar sem som; tente recarregar a página.</p>}
     </section>
   </main>;
 }

@@ -1,4 +1,5 @@
-import { AI, BALL, FIELD, MATCH } from './config';
+import { AI, BALL, MATCH } from './config';
+import { createArenaDimensions, type ArenaDimensions } from './arena-dimensions';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 export type ScoringSide = 'red' | 'blue';
@@ -13,11 +14,15 @@ export function opponentCars(round: number) {
   return Math.min(AI.maxCars, AI.startingCars + Math.floor(round / AI.roundsPerAdditionalCar));
 }
 
-export function getScoringSide(ball: GoalBallPosition): ScoringSide | null {
-  const insideDepth = Math.abs(ball.x) >= FIELD.goalLineX + BALL.radius + FIELD.scoreMargin
-    && Math.abs(ball.x) <= FIELD.goalBackX - BALL.radius;
-  const insideMouth = Math.abs(ball.z) <= FIELD.goalHalfWidth - BALL.radius
-    && ball.y + BALL.radius <= FIELD.goalHeight;
+export function getScoringSide(
+  ball: GoalBallPosition,
+  dims: ArenaDimensions = createArenaDimensions(),
+  radius = BALL.radius,
+): ScoringSide | null {
+  const insideDepth = Math.abs(ball.x) >= dims.goalLineX + radius
+    && Math.abs(ball.x) <= dims.goalBackX - radius;
+  const insideMouth = Math.abs(ball.z) <= dims.goalHalfWidth - radius
+    && ball.y + radius <= dims.goalHeight;
   if (!insideDepth || !insideMouth) return null;
   return ball.x > 0 ? 'blue' : 'red';
 }

@@ -26,6 +26,10 @@ body.is-playing{overflow:hidden;overscroll-behavior:none}
 .hud-pause{pointer-events:auto;position:absolute;top:max(var(--edge-margin),env(safe-area-inset-top,0px));left:max(var(--edge-margin),env(safe-area-inset-left,0px));width:48px;height:48px;display:grid;place-items:center;border:1px solid #ffffff70;border-radius:14px;background:#0c1829b8;color:#fff;font:900 18px 'Barlow Condensed',sans-serif;letter-spacing:.1em;cursor:pointer;touch-action:none}
 .hud-pause:disabled{opacity:.4}
 .hud-pause:focus-visible{outline:3px solid #f3c96c;outline-offset:2px}
+.ball-cam-button{pointer-events:auto;position:absolute;top:max(var(--edge-margin),env(safe-area-inset-top,0px));right:max(var(--edge-margin),env(safe-area-inset-right,0px));width:var(--small-button,52px);height:var(--small-button,52px);display:grid;place-items:center;border:1px solid #ffffff70;border-radius:14px;background:#0c1829b8;color:#fff;font:900 13px 'Barlow Condensed',sans-serif;letter-spacing:.1em;cursor:pointer;touch-action:none}
+.ball-cam-button[aria-pressed=true]{background:#f3c96c;color:#1a1408;border-color:#f3c96c}
+.ball-cam-button:disabled{opacity:.4}
+.ball-cam-button:focus-visible{outline:3px solid #f3c96c;outline-offset:2px}
 .hud .match-bar{position:absolute;top:max(6px,env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:1;gap:clamp(12px,3vw,30px);padding:2px 14px;border-top:0;border-radius:0 0 8px 8px}
 .hud .team{font-size:14px;min-width:56px}
 .hud .team small{display:block;font-size:7px}

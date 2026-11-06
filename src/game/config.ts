@@ -1,76 +1,3 @@
-export const FIELD = {
-  scaleX: 2.8,
-  scaleZ: 2.45,
-  halfWidth: 42,
-  halfLength: 22.05,
-  sideWallZ: 20.09,
-  goalLineX: 38.36,
-  goalBackX: 41.16,
-  goalHalfWidth: 7.35,
-  goalHeight: 3.5,
-  scoreMargin: 0.08,
-  recovery: { floorCenterY: -0.2, floorHalfHeight: 0.25, wallCenterY: 0.7, wallHalfHeight: 0.7, wallHalfDepth: 0.1, goalColliderHalfSize: 0.1 },
-  celebrationXOffset: 0.15,
-  collider: {
-    floorY: -0.2,
-    floorHalfHeight: 0.25,
-    wallY: 0.7,
-    wallHalfHeight: 0.7,
-    wallHalfDepth: 0.1,
-    goalPostHalfSize: 0.1,
-    goalCrossbarHalfSize: 0.1,
-  },
-  visual: {
-    base: { width: 30, height: 0.5, depth: 18, y: -0.3 },
-    floor: { width: 28, height: 0.1, depth: 16 },
-    stripes: { startX: -12, endX: 12, stepX: 4, width: 2, height: 0.008, depth: 15.4, y: 0.055 },
-    markings: {
-      center: { width: 0.09, height: 0.015, depth: 15.6, y: 0.06 },
-      sidelines: { zOffset: 7.7, width: 27.5, height: 0.015, thickness: 0.08, y: 0.06 },
-      ends: { xOffset: 13.7, width: 0.08, height: 0.015, depth: 15.4, y: 0.06 },
-      centerCircle: { innerRadius: 2.25, outerRadius: 2.32, segments: 64, y: 0.065 },
-      goalArea: { xOffset: 12.1, zOffset: 3.7, width: 3.2, height: 0.015, thickness: 0.08, depth: 7.4, crossXOffset: 10.5, y: 0.06 },
-    },
-    tubeSegments: 8,
-    goalFrame: { footY: 0.1, postRadius: 0.09, netRadius: 0.012, netStep: 0.5, netMargin: 0.01, braceRadius: 0.035 },
-    walls: {
-      sideZ: 8.2,
-      width: 28,
-      height: 1.1,
-      depth: 0.18,
-      y: 0.65,
-      neonWidth: 28,
-      neonHeight: 0.09,
-      neonDepth: 0.2,
-      neonY: 1.25,
-      supportX: 14.1,
-      supportZ: 5.65,
-      supportWidth: 0.2,
-      supportHeight: 1.1,
-      supportDepth: 5,
-    },
-    stands: {
-      side: -1,
-      rows: 4,
-      width: 30,
-      depth: 1.4,
-      y: 0.15,
-      rowYStep: 0.65,
-      z: 9.1,
-      rowZStep: 1.1,
-      seatStartX: -13,
-      seatEndX: 13,
-      seatStepX: 1.2,
-      seatWidth: 0.14,
-      seatHeight: 0.16,
-      seatDepth: 0.1,
-      seatY: 0.5,
-      seatColorMultiplier: 10,
-      seatColorCycle: 3,
-    },
-  },
-} as const;
-
 export const CAR = {
   mass: 4.5,
   radius: 1.5,
@@ -91,7 +18,8 @@ export const CAR = {
   turningGripFactor: 0.68,
   minSteeringScale: 0.55,
   angularDamping: 3.5,
-  friction: 0.05,
+  friction: 0.05, // skate × chão (Min) — mantém ≥ 13,5 u/s em 1 s
+  contactFriction: 0.7, // carro × bola/paredes (Average), via collision groups
   restitution: 0.38,
   impactRecoverySeconds: 0.35,
   impactRecoveryThreshold: 1.5,
@@ -107,18 +35,33 @@ export const CAR = {
 } as const;
 
 export const BALL = {
-  mass: 1,
-  radius: 0.9,
-  maxSpeed: 28,
-  restitution: 0.42,
-  friction: 0.62,
-  linearDamping: 0.3,
+  radius: 1.7,
+  mass: 1.2,
+  restitution: 0.72,
+  friction: 0.4,
+  linearDamping: 0.08,
+  angularDamping: 0.4,
+  gravityScale: 0.8,
+  maxSpeed: 45,
   bodyOffset: 0.06,
   visualOffsetY: 0.04,
   geometryDetail: 2,
-  vertexGeometryDetail: 0,
-  patchRadius: 0.27,
-  patchSurfaceRadius: 0.904,
+  emissiveIntensity: 0.15,
+} as const;
+
+export const ARENA = {
+  goalLineX: 40,
+  sideWallZ: 28,
+  ceilingY: 20,
+  cornerChamfer: 8,
+  wallThickness: 1,
+  wallOpaqueHeight: 2,
+  wallGlassHeight: 6,
+  goal: { halfWidth: 11, height: 8, depth: 6 },
+  floorRestitution: 0.5,
+  wallRestitution: 0.6,
+  floorFriction: 0.5,
+  wallFriction: 0.45,
 } as const;
 
 export const KICK = {
@@ -198,10 +141,14 @@ export const AI = {
 } as const;
 
 export const STUCK = {
-  edgeMarginX: 6,
-  edgeMarginZ: 4,
+  edgeMarginX: 8,
+  edgeMarginZ: 6,
   movementResetDistance: 3,
   timeoutSeconds: 4,
+  pinchSpeed: 0.5,
+  pinchDistance: 4,
+  pinchSeconds: 2.5,
+  liftImpulse: 14,
 } as const;
 
 export const SIMULATION = {
@@ -232,6 +179,10 @@ export const CAMERA = {
   yawResponse: 6,
   maxYawLagDeg: 35,
   ballAssist: { maxYawDeg: 15, coneDeg: 70, maxDistance: 35, minDistance: 5, lookRisePerBallY: 0.3 },
+  ballCam: { lookBallWeight: 0.6, heightPerBallY: 0.35, minPlanarDistance: 4 },
+  wallMargin: 1,
+  minDistanceNearWall: 4.5,
+  heightGainPerLostDistance: 0.5,
   snapDistance: 30,
   reducedMotionResponseScale: 0.7,
   indicatorInsetPx: 56,
@@ -253,12 +204,13 @@ export const TOUCH = {
     baseFollowFactor: 1.3,
   },
   primaryButtonPx: 88,
+  smallButtonPx: 52,
   hudHeightPx: 56,
   edgeMarginPx: 12,
 } as const;
 
 export const KEYBOARD = { steerRampPerSecond: 8, throttleRampPerSecond: 10 } as const;
 
-export const RENDER = { pixelRatioCoarse: 1.25, pixelRatioFine: 1.5 } as const;
+export const RENDER = { pixelRatioCoarse: 1.25, pixelRatioFine: 1.5, drawCallBudget: 120 } as const;
 
 export const DEBUG = { refreshMs: 250, frameWindow: 60 } as const;

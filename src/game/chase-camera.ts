@@ -1,10 +1,13 @@
 import { CAMERA } from './config';
+import type { ArenaDimensions } from './arena-dimensions';
 
+export type CameraMode = 'car' | 'ball';
 export type CameraPreset = keyof typeof CAMERA.presets;
 export type CameraRig = { x: number; y: number; z: number; yaw: number; fovDeg: number };
 export type CameraTarget = {
   carX: number; carY: number; carZ: number; carHeading: number; carSpeed: number; boosting: boolean;
   ballX: number; ballY: number; ballZ: number;
+  mode: CameraMode;
 };
 export type CameraStepOptions = { reducedMotion?: boolean };
 export type CameraStep = { rig: CameraRig; lookAt: { x: number; y: number; z: number } };
@@ -28,6 +31,49 @@ export function wrapAngle(angle: number) {
 export function verticalFovForAspect(aspect: number, hFovDeg: number, minVDeg: number, maxVDeg: number): number {
   const vertical = 2 * Math.atan(Math.tan((hFovDeg * DEG) / 2) / aspect) / DEG;
   return clamp(vertical, minVDeg, maxVDeg);
+}
+
+export function clampCameraToArena(
+  pos: { x: number; y: number; z: number },
+  arena: ArenaDimensions,
+  margin: number,
+): { x: number; y: number; z: number; lostDistance: number } {
+  const minY = margin;
+  const maxY = arena.ceilingY - margin;
+  let x = pos.x;
+  let y = clamp(pos.y, minY, maxY);
+  let z = pos.z;
+
+  const inMouth = Math.abs(z) <= arena.goalHalfWidth - margin;
+  const pastGoalLine = Math.abs(x) > arena.goalLineX - margin;
+  if (pastGoalLine && inMouth) {
+    const end = Math.sign(x) || 1;
+    x = clamp(x, -arena.goalBackX + margin, arena.goalBackX - margin);
+    if (end > 0) x = Math.max(x, arena.goalLineX - margin);
+    else x = Math.min(x, -arena.goalLineX + margin);
+    z = clamp(z, -arena.goalHalfWidth + margin, arena.goalHalfWidth - margin);
+    y = Math.min(y, arena.goalHeight - margin);
+  } else {
+    x = clamp(x, -arena.goalLineX + margin, arena.goalLineX - margin);
+    z = clamp(z, -arena.sideWallZ + margin, arena.sideWallZ - margin);
+    const chamferLimit = arena.goalLineX + arena.sideWallZ - arena.cornerChamfer - margin * Math.SQRT2;
+    const extent = Math.abs(x) + Math.abs(z);
+    if (extent > chamferLimit) {
+      const extra = extent - chamferLimit;
+      const ax = Math.abs(x) || 1e-6;
+      const az = Math.abs(z) || 1e-6;
+      x -= Math.sign(x) * extra * (ax / (ax + az));
+      z -= Math.sign(z) * extra * (az / (ax + az));
+    }
+  }
+
+  y = clamp(y, minY, maxY);
+  return {
+    x,
+    y,
+    z,
+    lostDistance: Math.hypot(pos.x - x, pos.y - y, pos.z - z),
+  };
 }
 
 function ballAssist(target: CameraTarget) {
@@ -67,6 +113,15 @@ function desiredPosition(yaw: number, target: CameraTarget, preset: CameraPreset
 }
 
 function lookPoint(rig: CameraRig, target: CameraTarget, preset: CameraPreset, lookRise: number) {
+  if (target.mode === 'ball') {
+    const { lookBallWeight, heightPerBallY } = CAMERA.ballCam;
+    const { lookHeight } = CAMERA.presets[preset];
+    return {
+      x: target.carX + (target.ballX - target.carX) * lookBallWeight,
+      y: target.carY + lookHeight + target.ballY * heightPerBallY,
+      z: target.carZ + (target.ballZ - target.carZ) * lookBallWeight,
+    };
+  }
   const { lookAhead, lookHeight } = CAMERA.presets[preset];
   return {
     x: target.carX - Math.sin(rig.yaw) * lookAhead,
@@ -75,11 +130,45 @@ function lookPoint(rig: CameraRig, target: CameraTarget, preset: CameraPreset, l
   };
 }
 
-export function createChaseRig(target: CameraTarget, aspect: number, preset: CameraPreset): CameraStep {
-  const yaw = target.carHeading;
-  const position = desiredPosition(yaw, target, preset);
+function desiredYaw(target: CameraTarget, currentYaw: number) {
+  if (target.mode !== 'ball') return target.carHeading + ballAssist(target).yawOffset;
+  const dx = target.ballX - target.carX;
+  const dz = target.ballZ - target.carZ;
+  const planar = Math.hypot(dx, dz);
+  if (planar < CAMERA.ballCam.minPlanarDistance) return currentYaw;
+  return Math.atan2(-dx, -dz);
+}
+
+function applyArena(position: { x: number; y: number; z: number }, target: CameraTarget, arena: ArenaDimensions) {
+  const clamped = clampCameraToArena(position, arena, CAMERA.wallMargin);
+  let x = clamped.x;
+  let y = clamped.y + CAMERA.heightGainPerLostDistance * clamped.lostDistance;
+  let z = clamped.z;
+  y = Math.min(y, arena.ceilingY - CAMERA.wallMargin);
+  const dx = x - target.carX;
+  const dy = y - target.carY;
+  const dz = z - target.carZ;
+  const planar = Math.hypot(dx, dz);
+  const minDist = CAMERA.minDistanceNearWall;
+  if (planar * planar + dy * dy < minDist * minDist) {
+    const needed = Math.sqrt(Math.max(0, minDist * minDist - planar * planar));
+    y = Math.max(y, target.carY + needed);
+    y = Math.min(y, arena.ceilingY - CAMERA.wallMargin);
+  }
+  const settled = clampCameraToArena({ x, y, z }, arena, CAMERA.wallMargin);
+  return { x: settled.x, y: settled.y, z: settled.z, lostDistance: clamped.lostDistance };
+}
+
+export function createChaseRig(
+  target: CameraTarget,
+  aspect: number,
+  arena: ArenaDimensions,
+  preset: CameraPreset,
+): CameraStep {
+  const yaw = desiredYaw(target, target.carHeading);
+  const position = applyArena(desiredPosition(yaw, target, preset), target, arena);
   const rig: CameraRig = { ...position, yaw, fovDeg: targetFov(target, aspect, {}) };
-  return { rig, lookAt: lookPoint(rig, target, preset, 0) };
+  return { rig, lookAt: lookPoint(rig, target, preset, target.mode === 'car' ? ballAssist(target).lookRise : 0) };
 }
 
 export function stepChaseCamera(
@@ -87,10 +176,11 @@ export function stepChaseCamera(
   target: CameraTarget,
   dt: number,
   aspect: number,
+  arena: ArenaDimensions,
   preset: CameraPreset,
   options: CameraStepOptions = {},
 ): CameraStep {
-  const assist = ballAssist(target);
+  const assist = target.mode === 'car' ? ballAssist(target) : { yawOffset: 0, lookRise: 0 };
   if (dt <= 0) return { rig, lookAt: lookPoint(rig, target, preset, assist.lookRise) };
 
   const responseScale = options.reducedMotion ? CAMERA.reducedMotionResponseScale : 1;
@@ -98,22 +188,26 @@ export function stepChaseCamera(
   const positionBlend = 1 - Math.exp(-CAMERA.positionResponse * responseScale * dt);
   const fovBlend = 1 - Math.exp(-CAMERA.positionResponse * dt);
 
-  const desiredYaw = target.carHeading + assist.yawOffset;
-  let yaw = wrapAngle(rig.yaw + wrapAngle(desiredYaw - rig.yaw) * yawBlend);
-  const maxLag = CAMERA.maxYawLagDeg * DEG;
-  yaw = wrapAngle(target.carHeading + clamp(wrapAngle(yaw - target.carHeading), -maxLag, maxLag));
+  const wantedYaw = desiredYaw(target, rig.yaw);
+  let yaw = wrapAngle(rig.yaw + wrapAngle(wantedYaw - rig.yaw) * yawBlend);
+  if (target.mode === 'car') {
+    const maxLag = CAMERA.maxYawLagDeg * DEG;
+    yaw = wrapAngle(target.carHeading + clamp(wrapAngle(yaw - target.carHeading), -maxLag, maxLag));
+  }
 
-  const desired = desiredPosition(yaw, target, preset);
-  const jump = Math.hypot(desired.x - rig.x, desired.z - rig.z);
+  const placed = applyArena(desiredPosition(yaw, target, preset), target, arena);
+  const jump = Math.hypot(placed.x - rig.x, placed.z - rig.z);
   const snap = jump > CAMERA.snapDistance;
   const next: CameraRig = {
-    x: snap ? desired.x : rig.x + (desired.x - rig.x) * positionBlend,
-    y: snap ? desired.y : rig.y + (desired.y - rig.y) * positionBlend,
-    z: snap ? desired.z : rig.z + (desired.z - rig.z) * positionBlend,
+    x: snap ? placed.x : rig.x + (placed.x - rig.x) * positionBlend,
+    y: snap ? placed.y : rig.y + (placed.y - rig.y) * positionBlend,
+    z: snap ? placed.z : rig.z + (placed.z - rig.z) * positionBlend,
     yaw,
     fovDeg: rig.fovDeg + (targetFov(target, aspect, options) - rig.fovDeg) * fovBlend,
   };
-  return { rig: next, lookAt: lookPoint(next, target, preset, assist.lookRise) };
+  const settled = applyArena(next, target, arena);
+  const clamped: CameraRig = { ...next, x: settled.x, y: settled.y, z: settled.z };
+  return { rig: clamped, lookAt: lookPoint(clamped, target, preset, assist.lookRise) };
 }
 
 /** `ndc.y` positivo = para cima. Devolve a posição em px (origem no canto superior esquerdo) ou `null` com a bola visível. */

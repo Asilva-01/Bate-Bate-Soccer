@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { BALL } from './config';
 
-function material(color: number, emissive = 0) { return new THREE.MeshStandardMaterial({ color, emissive, metalness: 0.4, roughness: 0.35 }); }
 function mesh(group: THREE.Group, geometry: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) { const object = new THREE.Mesh(geometry, mat); object.position.set(x, y, z); group.add(object); return object; }
 export function createCar(color: number, number: string) {
   const group = new THREE.Group();
@@ -67,10 +66,55 @@ export function createCar(color: number, number: string) {
   }
   return group;
 }
+function createBallTexture() {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = '#f2f5f2';
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#101720';
+  const pentagon = (cx: number, cy: number, radius: number) => {
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const angle = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+      const x = cx + Math.cos(angle) * radius;
+      const y = cy + Math.sin(angle) * radius;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+  };
+  const spots: [number, number][] = [
+    [0.5, 0.07], [0.5, 0.93],
+    [0.5, 0.38], [0.5, 0.62],
+    [0.18, 0.22], [0.82, 0.22],
+    [0.18, 0.78], [0.82, 0.78],
+    [0.08, 0.5], [0.92, 0.5],
+    [0.32, 0.5], [0.68, 0.5],
+  ];
+  for (const [u, v] of spots) pentagon(u * size, v * size, size * 0.055);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
 export function createBall() {
-  const group = new THREE.Group(); mesh(group, new THREE.IcosahedronGeometry(BALL.radius, BALL.geometryDetail), material(0xf2f5f2), 0, 0, 0);
-  // Dark pentagonal patches are placed on the vertices of an icosahedron.
-  const vertices = new THREE.IcosahedronGeometry(1, BALL.vertexGeometryDetail).getAttribute('position'); const seen = new Set<string>();
-  for (let i = 0; i < vertices.count; i++) { const v = new THREE.Vector3(vertices.getX(i), vertices.getY(i), vertices.getZ(i)).normalize(); const key = v.toArray().map(n => n.toFixed(3)).join(','); if (seen.has(key)) continue; seen.add(key); const patch = new THREE.Mesh(new THREE.CircleGeometry(BALL.patchRadius, 5), material(0x101720)); patch.position.copy(v.multiplyScalar(BALL.patchSurfaceRadius)); patch.lookAt(patch.position.clone().multiplyScalar(2)); group.add(patch); }
-  group.position.y = BALL.radius + BALL.visualOffsetY; return group;
+  const map = createBallTexture();
+  const ball = new THREE.Mesh(
+    new THREE.SphereGeometry(BALL.radius, 32, 24),
+    new THREE.MeshStandardMaterial({
+      color: 0xf2f5f2,
+      map: map ?? undefined,
+      emissive: 0xf2f5f2,
+      emissiveIntensity: BALL.emissiveIntensity,
+      metalness: 0.08,
+      roughness: 0.38,
+    }),
+  );
+  ball.position.y = BALL.radius + BALL.visualOffsetY;
+  return ball;
 }

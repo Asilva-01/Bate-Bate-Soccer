@@ -1,12 +1,15 @@
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import * as THREE from 'three';
-import { BALL, CAR, FIELD } from '../src/game/config.ts';
+import { BALL, CAR } from '../src/game/config.ts';
 import { createPhysics } from '../src/game/physics-runtime.ts';
 import { awardGoal, getScoringSide, opponentCars, opponentSpeed, selectAttacker } from '../src/game/match-rules.ts';
 import { createStuckMonitor } from '../src/game/stuck-monitor.ts';
 import { getLateralRecoveryImpulse } from '../src/game/vehicle-dynamics.ts';
-import { containPlanarBody } from '../src/game/arena-boundaries.ts';
+import { containPlanarBody, containSpatialBody } from '../src/game/arena-boundaries.ts';
+import { createArenaDimensions } from '../src/game/arena-dimensions.ts';
 import { createControlFrame } from '../src/game/input.ts';
+
+const arena = createArenaDimensions();
 
 const handlers = new Map<string, (event: unknown) => void>();
 let physics: Awaited<ReturnType<typeof createPhysics>> | undefined;
@@ -20,12 +23,12 @@ beforeAll(() => Object.assign(globalThis, {
 afterAll(() => physics?.dispose());
 
 test('gol exige a bola inteira dentro da abertura e da profundidade da trave', () => {
-  const x = FIELD.goalLineX + BALL.radius + FIELD.scoreMargin + 0.01;
-  expect(getScoringSide({ x, y: BALL.radius + BALL.bodyOffset, z: 0 })).toBe('blue');
-  expect(getScoringSide({ x: -x, y: BALL.radius + BALL.bodyOffset, z: 0 })).toBe('red');
-  expect(getScoringSide({ x: FIELD.goalLineX, y: BALL.radius + BALL.bodyOffset, z: 0 })).toBeNull();
-  expect(getScoringSide({ x, y: BALL.radius + BALL.bodyOffset, z: FIELD.goalHalfWidth })).toBeNull();
-  expect(getScoringSide({ x, y: FIELD.goalHeight, z: 0 })).toBeNull();
+  const x = arena.goalLineX + BALL.radius + 0.01;
+  expect(getScoringSide({ x, y: BALL.radius + BALL.bodyOffset, z: 0 }, arena)).toBe('blue');
+  expect(getScoringSide({ x: -x, y: BALL.radius + BALL.bodyOffset, z: 0 }, arena)).toBe('red');
+  expect(getScoringSide({ x: arena.goalLineX, y: BALL.radius + BALL.bodyOffset, z: 0 }, arena)).toBeNull();
+  expect(getScoringSide({ x, y: BALL.radius + BALL.bodyOffset, z: arena.goalHalfWidth }, arena)).toBeNull();
+  expect(getScoringSide({ x, y: arena.goalHeight, z: 0 }, arena)).toBeNull();
 });
 
 test('opponentSpeed preserva os valores por dificuldade e sobe ate o limite', () => {
@@ -56,12 +59,27 @@ test('placar encerra aos tres gols e libera reforco a partir da segunda rodada',
 });
 
 test('detector recupera quique preso e preserva bola em movimento', () => {
-  const monitor = createStuckMonitor();
+  const monitor = createStuckMonitor(arena);
   let recovered = false;
-  for (let i = 0; i < 300; i++) recovered ||= monitor.update(38 + Math.sin(i / 8), 19, 1 / 60);
+  for (let i = 0; i < 300; i++) recovered ||= monitor.update(36 + Math.sin(i / 8), 25, 1 / 60);
   expect(recovered).toBe(true);
   monitor.reset();
-  for (let i = 0; i < 600; i++) expect(monitor.update(36, 16 + i / 60, 1 / 60)).toBe(false);
+  for (let i = 0; i < 600; i++) expect(monitor.update(20, 10 + i / 60, 1 / 60)).toBe(false);
+});
+
+test('bola imprensada entre os dois times dispara depois de 2,5 s', () => {
+  const monitor = createStuckMonitor(arena);
+  const cars = [
+    { x: 1, z: 0, team: 'red' as const },
+    { x: -1, z: 0, team: 'blue' as const },
+  ];
+  let lifted = false;
+  for (let i = 0; i < 160; i++) lifted ||= monitor.updatePinch({ x: 0, z: 0, speed: 0.2 }, cars, 1 / 60);
+  expect(lifted).toBe(true);
+  monitor.reset();
+  for (let i = 0; i < 200; i++) {
+    expect(monitor.updatePinch({ x: 0, z: 0, speed: 0.2 }, [{ x: 1, z: 0, team: 'red' }], 1 / 60)).toBe(false);
+  }
 });
 
 test('recuperacao apos impacto reduz derrapagem sem frear o movimento para frente', () => {
@@ -84,6 +102,10 @@ test('limites do campo mantem corpos dentro e rebate a velocidade para dentro', 
     velocityX: 2,
     velocityZ: 1,
   });
+  expect(containSpatialBody(0, 22, 0, 0, 4, 0, 40, 28, 1.7, 18.3, 0.72)).toMatchObject({
+    y: 18.3,
+    velocityY: -4 * 0.72,
+  });
 });
 
 test('setas movem o carrinho, IA aproxima e reiniciar zera o placar', async () => {
@@ -105,10 +127,10 @@ test('setas movem o carrinho, IA aproxima e reiniciar zera o placar', async () =
   expect(Math.hypot(cars[0].position.x + 18, cars[0].position.z)).toBeGreaterThan(2);
   for (let i = 0; i < 300; i++) physics.update(1 / 60, () => {});
   expect(Math.hypot(cars[1].position.x - 18, cars[1].position.z)).toBeGreaterThan(1);
-  expect(Math.abs(cars[1].position.x)).toBeLessThanOrEqual(FIELD.goalBackX - CAR.radius);
-  expect(Math.abs(cars[1].position.z)).toBeLessThanOrEqual(FIELD.sideWallZ - CAR.radius);
-  expect(Math.abs(ball.position.x)).toBeLessThanOrEqual(FIELD.goalBackX - BALL.radius);
-  expect(Math.abs(ball.position.z)).toBeLessThanOrEqual(FIELD.sideWallZ - BALL.radius);
+  expect(Math.abs(cars[1].position.x)).toBeLessThanOrEqual(arena.goalBackX - CAR.radius + 0.3);
+  expect(Math.abs(cars[1].position.z)).toBeLessThanOrEqual(arena.sideWallZ - CAR.radius + 0.3);
+  expect(Math.abs(ball.position.x)).toBeLessThanOrEqual(arena.goalBackX - BALL.radius + 0.3);
+  expect(Math.abs(ball.position.z)).toBeLessThanOrEqual(arena.sideWallZ - BALL.radius + 0.3);
   physics.restart();
   expect([states.at(-1)?.red, states.at(-1)?.blue, states.at(-1)?.finished]).toEqual([0, 0, false]);
   physics.dispose(); physics = undefined;

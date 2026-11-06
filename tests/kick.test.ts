@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
-import { BALL, CAR, FIELD, KICK } from '../src/game/config.ts';
+import { BALL, CAR, KICK } from '../src/game/config.ts';
+import { createArenaDimensions } from '../src/game/arena-dimensions.ts';
 import {
   computeKickTarget,
   impulseForKickTarget,
@@ -79,7 +80,7 @@ test('contador monotônico consome um aperto por incremento', () => {
 });
 
 test('apex do chute máximo fica abaixo do travessão', () => {
-  expect(kickApex(KICK.maxPower) + BALL.radius).toBeLessThan(FIELD.goalHeight);
+  expect(kickApex(KICK.maxPower) + BALL.radius).toBeLessThan(createArenaDimensions().goalHeight);
 });
 
 test('dividida oposta zera plano e mantém elevação', () => {

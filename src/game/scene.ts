@@ -3,15 +3,17 @@ import { createArena } from './arena';
 import { createBall, createCar } from './objects';
 import { createPhysics, type ControlFrame, type MatchState, type KickEvent } from './physics';
 import type { Difficulty } from './match-rules';
-import { CAMERA, DEBUG, FIELD, RENDER } from './config';
+import { BALL, CAMERA, CAR, DEBUG, RENDER } from './config';
+import { createArenaDimensions } from './arena-dimensions';
 import { isInKickZone } from './kick';
-import { createChaseRig, offscreenIndicator, stepChaseCamera, type CameraPreset, type CameraStep, type CameraTarget, type IndicatorPosition, type ScreenInsets } from './chase-camera';
+import { createChaseRig, offscreenIndicator, stepChaseCamera, type CameraMode, type CameraPreset, type CameraStep, type CameraTarget, type IndicatorPosition, type ScreenInsets } from './chase-camera';
 import { yawFromQuaternion } from './render-interpolation';
 import { createPerfMonitor } from './perf-monitor';
 
 export type BallIndicator = IndicatorPosition & { distance: number };
 export type GameControls = {
   cameraPreset: CameraPreset;
+  cameraMode: CameraMode;
   running: boolean;
   restart: () => void;
   resetTiming: () => void;
@@ -31,9 +33,9 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const pixelRatio = Math.min(window.devicePixelRatio, coarsePointer ? RENDER.pixelRatioCoarse : RENDER.pixelRatioFine);
   const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(pixelRatio); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; container.appendChild(renderer.domElement);
-  scene.add(new THREE.HemisphereLight(0xa8dfff, 0x1d1420, 2)); const main = new THREE.DirectionalLight(0xffffff, 2.3); main.position.set(4, 18, 8); scene.add(main);
-  const blue = new THREE.PointLight(0x00bfff, 100, 24); blue.position.set(-12, 5, -5); scene.add(blue); const red = new THREE.PointLight(0xff2856, 100, 24); red.position.set(12, 5, 5); scene.add(red);
-  const arena = createArena(); arena.scale.set(FIELD.scaleX, 1, FIELD.scaleZ); scene.add(arena); const ball = createBall(); scene.add(ball);
+  scene.add(new THREE.HemisphereLight(0xa8dfff, 0x1d1420, 1.8)); const main = new THREE.DirectionalLight(0xffffff, 2.1); main.position.set(8, 22, 10); scene.add(main);
+  const dims = createArenaDimensions();
+  const arena = createArena(dims); scene.add(arena); const ball = createBall(); scene.add(ball);
   const cars = [[0xf43c4b, '01', -18, 0, -Math.PI / 2], [0x148fff, '02', 18, 0, Math.PI / 2], [0xff8b5b, '03', -18, 9, -Math.PI / 2], [0x45b6e5, '04', 18, -9, Math.PI / 2], [0x1978c7, '05', 18, 9, Math.PI / 2], [0x7abde5, '06', 24, 0, Math.PI / 2]] as const;
   const carModels = cars.map(([color, number, x, z, rotation]) => { const car = createCar(color, number); car.position.set(x, 0, z); car.rotation.y = rotation; scene.add(car); return car; });
   let previousRed = 0;
@@ -48,7 +50,7 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
     if (state.red > previousRed || state.blue > previousBlue) {
       controls.sound('goal');
       const scoringSide = state.red > previousRed ? 1 : -1;
-      goalCelebration.position.set(scoringSide * (FIELD.goalLineX + FIELD.celebrationXOffset), FIELD.goalHeight / 2, 0);
+      goalCelebration.position.set(scoringSide * (dims.goalLineX + 0.2), dims.goalHeight / 2, 0);
       goalCelebrationAge = 0;
       goalCelebration.visible = true;
     }
@@ -84,9 +86,26 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
     impact.ring.visible = true;
     flash = Math.min(1, strength / 8);
   };
-  const ballHalo = new THREE.Mesh(new THREE.RingGeometry(1.05, 1.13, 40), new THREE.MeshBasicMaterial({ color: 0x69e8ff, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide }));
+  const shadowDummy = new THREE.Object3D();
+  const shadowCount = carModels.length + 1;
+  const fakeShadows = new THREE.InstancedMesh(
+    new THREE.CircleGeometry(1, 24),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.38, depthWrite: false }),
+    shadowCount,
+  );
+  fakeShadows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  fakeShadows.frustumCulled = false;
+  scene.add(fakeShadows);
+  const placeShadow = (index: number, x: number, z: number, radius: number, visible: boolean) => {
+    shadowDummy.position.set(x, 0.04, z);
+    shadowDummy.scale.set(visible ? radius : 0, visible ? radius : 0, 1);
+    shadowDummy.rotation.set(-Math.PI / 2, 0, 0);
+    shadowDummy.updateMatrix();
+    fakeShadows.setMatrixAt(index, shadowDummy.matrix);
+  };
+  const ballHalo = new THREE.Mesh(new THREE.RingGeometry(1.02, 1.16, 40), new THREE.MeshBasicMaterial({ color: 0x69e8ff, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide }));
   ballHalo.rotation.x = -Math.PI / 2;
-  ballHalo.position.y = 0.1;
+  ballHalo.position.y = 0.045;
   scene.add(ballHalo);
   const kickRings = Array.from({ length: 4 }, () => {
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.65, 0.82, 32), new THREE.MeshBasicMaterial({ color: 0xff8b5b, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
@@ -113,15 +132,16 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
   const resize = () => { const { clientWidth, clientHeight } = container; if (!clientWidth || !clientHeight) return; camera.aspect = clientWidth / clientHeight; renderer.setSize(clientWidth, clientHeight); safeInsets = readSafeInsets(safeAreaProbe); };
   const observer = new ResizeObserver(resize); observer.observe(container); resize(); let frame = 0;
   const playerCar = carModels[0];
-  const cameraSubject: CameraTarget = { carX: 0, carY: 0, carZ: 0, carHeading: 0, carSpeed: 0, boosting: false, ballX: 0, ballY: 0, ballZ: 0 };
+  const cameraSubject: CameraTarget = { carX: 0, carY: 0, carZ: 0, carHeading: 0, carSpeed: 0, boosting: false, ballX: 0, ballY: 0, ballZ: 0, mode: controls.cameraMode };
   const updateSubject = () => {
     cameraSubject.carX = playerCar.position.x; cameraSubject.carY = playerCar.position.y; cameraSubject.carZ = playerCar.position.z;
     cameraSubject.carHeading = yawFromQuaternion(playerCar.quaternion.y, playerCar.quaternion.w);
     cameraSubject.carSpeed = physics.playerSpeed();
     cameraSubject.ballX = ball.position.x; cameraSubject.ballY = ball.position.y; cameraSubject.ballZ = ball.position.z;
+    cameraSubject.mode = controls.cameraMode;
   };
   updateSubject();
-  let cameraStep: CameraStep = createChaseRig(cameraSubject, camera.aspect, controls.cameraPreset);
+  let cameraStep: CameraStep = createChaseRig(cameraSubject, camera.aspect, dims, controls.cameraPreset);
   const projected = new THREE.Vector3();
   const insetPx = CAMERA.indicatorInsetPx;
   const debugEnabled = new URLSearchParams(window.location.search).get('debug') === '1';
@@ -162,7 +182,7 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
       if (goalCelebrationAge >= 1) goalCelebration.visible = false;
     }
     updateSubject();
-    cameraStep = stepChaseCamera(cameraStep.rig, cameraSubject, delta, camera.aspect, controls.cameraPreset, { reducedMotion: reducedMotion.matches });
+    cameraStep = stepChaseCamera(cameraStep.rig, cameraSubject, delta, camera.aspect, dims, controls.cameraPreset, { reducedMotion: reducedMotion.matches });
     const { rig, lookAt } = cameraStep;
     camera.position.set(rig.x, rig.y, rig.z);
     camera.fov = rig.fovDeg;
@@ -176,11 +196,18 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
       const marker = offscreenIndicator(projected, behind, { left: safeInsets.left + insetPx, right: safeInsets.right + insetPx, top: safeInsets.top + insetPx, bottom: safeInsets.bottom + insetPx }, { width: container.clientWidth, height: container.clientHeight });
       controls.indicator(marker && { ...marker, distance: Math.hypot(ball.position.x - playerCar.position.x, ball.position.z - playerCar.position.z) });
     } else controls.indicator(null);
+    const ballHeight = Math.max(0, ball.position.y - BALL.radius);
+    const ballShadowRadius = BALL.radius * (1.12 + Math.min(1, ballHeight / 10) * 1.5);
+    placeShadow(0, ball.position.x, ball.position.z, ballShadowRadius, true);
+    carModels.forEach((car, index) => {
+      placeShadow(index + 1, car.position.x, car.position.z, CAR.radius * 0.9, car.visible);
+    });
+    fakeShadows.instanceMatrix.needsUpdate = true;
     ballHalo.position.x = ball.position.x;
     ballHalo.position.z = ball.position.z;
     const readyToKick = isInKickZone(playerCar.position.x, playerCar.position.z, cameraSubject.carHeading, ball.position.x, ball.position.y, ball.position.z);
     ballHalo.material.color.setHex(readyToKick ? 0xffd15c : 0x69e8ff);
-    ballHalo.scale.setScalar(1 + (readyToKick ? 0.14 : 0.08) * Math.sin(now * 0.006));
+    ballHalo.scale.setScalar(ballShadowRadius * (readyToKick ? 1.08 : 1));
     for (const impact of kickRings) {
       if (!impact.ring.visible) continue;
       impact.age += delta * 2.2;
@@ -196,9 +223,7 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
       impact.ring.material.opacity = (1 - impact.age) * 0.9;
     }
     flash = Math.max(0, flash - delta * 2.5);
-    main.intensity = 2.3 + flash * 0.5;
-    blue.intensity = 100 + 12 * Math.sin(now * 0.0017);
-    red.intensity = 100 + 12 * Math.sin(now * 0.0017 + Math.PI);
+    main.intensity = 2.1 + flash * 0.5;
     renderer.render(scene, camera);
     updateDebugPanel(now);
     frame = requestAnimationFrame(animate);
