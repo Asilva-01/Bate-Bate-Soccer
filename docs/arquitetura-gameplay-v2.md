@@ -536,6 +536,8 @@ Assentos com `InstancedMesh`, tubos da rede mesclados e merge de geometria dos c
 
 ## 12. Decisões abertas para o produto
 
+> **Status: confirmadas.** Em 05/11/2026, André confirmou as três recomendações abaixo: chute instantâneo no aperto, R1 2×2 → R2+ 3×3 e campo ×1,25. As alternativas ficam registradas só como histórico.
+
 1. **Estilo do chute:** chute **instantâneo no aperto**, com força pela velocidade (recomendado: mais simples no toque e sem latência), ou **segurar para carregar e soltar para chutar** (mais controle, mais difícil no celular)? A arquitetura suporta as duas opções (`KICK.chargeSeconds`).
 2. **Composição por rodada:** **R1 2×2 → R2+ 3×3** (recomendado; "time de verdade" desde o início, com você de atacante e um goleiro aliado) ou **R1 1×1 tutorial → R2 2×2 → R3+ 3×3**? Nos dois casos sai a regra "ganha aliado ao marcar / perde ao sofrer".
 3. **Tamanho do campo:** **×1,25** (recomendado; partidas no mesmo ritmo e tamanho na tela praticamente igual) ou **×1,40** (campo bem maior, travessia ~6 s e carrinhos ~15% menores no desktop)?
