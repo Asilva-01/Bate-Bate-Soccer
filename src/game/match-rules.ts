@@ -1,4 +1,4 @@
-import { AI, BALL, MATCH } from './config';
+import { AI, BALL, CAR, MATCH } from './config';
 import { createArenaDimensions, type ArenaDimensions } from './arena-dimensions';
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
@@ -8,6 +8,23 @@ export type ScoreState = { red: number; blue: number; redCars: number; blueCars:
 
 export function opponentSpeed(difficulty: Difficulty, round: number) {
   return Math.min(AI.maxSpeedFactor, AI.difficultySpeed[difficulty] + Math.max(0, round - 1) * AI.speedIncreasePerRound);
+}
+
+/** Fator da velocidade máxima da IA: fácil fica no 0,75; nenhum nível passa do jogador sem turbo. */
+export function aiSpeedFactor(difficulty: Difficulty, round = 1): number {
+  const grown = opponentSpeed(difficulty, round);
+  if (difficulty === 'easy') return Math.min(AI.difficultySpeed.easy, grown);
+  return Math.min(1, grown);
+}
+
+export function aiMaxSpeed(difficulty: Difficulty, round = 1): number {
+  return CAR.maxSpeed * aiSpeedFactor(difficulty, round);
+}
+
+/** Horizonte de previsão: no fácil o tempo de reação atrasa a bola prevista em relação ao difícil. */
+export function aiPredictionSeconds(difficulty: Difficulty): number {
+  const extraLag = Math.max(0, AI.difficultyReactionTime[difficulty] - AI.difficultyReactionTime.hard);
+  return Math.max(0, AI.predictionSeconds - extraLag);
 }
 
 export function opponentCars(round: number) {

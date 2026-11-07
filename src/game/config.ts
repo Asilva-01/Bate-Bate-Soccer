@@ -94,9 +94,10 @@ export const KICK = {
 
 export const AI = {
   seed: 1,
-  difficultySpeed: { easy: 0.75, medium: 0.95, hard: 1.15 },
+  difficultySpeed: { easy: 0.75, medium: 0.95, hard: 1.0 },
   difficultyAggression: { easy: 0.6, medium: 0.8, hard: 1.0 },
   difficultyReactionTime: { easy: 0.5, medium: 0.4, hard: 0.3 },
+  targetNoise: { easy: 1.2, medium: 0.6, hard: 0.2 },
   speedIncreasePerRound: 0.08,
   maxSpeedFactor: 1.4,
   speedMultiplier: 8,
@@ -212,8 +213,9 @@ export const TOUCH = {
     deadzone: 0.12,
     saturation: 0.85,
     frontHalfAngleDeg: 110,
-    steerFullAngleDeg: 75,
+    steerFullAngleDeg: 90,
     reverseSteerFullAngleDeg: 70,
+    reverseBlendAngleDeg: 15,
     baseFollowFactor: 1.3,
   },
   primaryButtonPx: 88,

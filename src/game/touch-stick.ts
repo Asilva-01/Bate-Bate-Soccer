@@ -19,20 +19,24 @@ export function normalizeStick(dxPx: number, dyPx: number, radiusPx: number): St
   return { x: x / length, y: y / length };
 }
 
+/** `steer` positivo = direita da tela. A faixa `reverseBlendAngleDeg` suaviza o throttle na fronteira frente/ré. */
 export function stickToDrive(stick: StickVector, params: typeof TOUCH.stick = TOUCH.stick): DriveAxes {
   const length = Math.hypot(stick.x, stick.y);
   const magnitude = clamp((length - params.deadzone) / (params.saturation - params.deadzone), 0, 1);
   if (magnitude === 0) return { throttle: 0, steer: 0 };
   const theta = Math.atan2(stick.x, stick.y);
   const absTheta = Math.abs(theta);
-  if (absTheta <= params.frontHalfAngleDeg * DEG) {
-    return {
-      throttle: magnitude,
-      steer: noNegativeZero(clamp(theta / (params.steerFullAngleDeg * DEG), -1, 1)),
-    };
-  }
-  const sideways = clamp((Math.PI - absTheta) / (params.reverseSteerFullAngleDeg * DEG), 0, 1);
-  return { throttle: -magnitude, steer: noNegativeZero(Math.sign(theta) * sideways) };
+  const front = params.frontHalfAngleDeg * DEG;
+  const blend = params.reverseBlendAngleDeg * DEG;
+  const forwardSteer = clamp(theta / (params.steerFullAngleDeg * DEG), -1, 1);
+  const reverseSteer = Math.sign(theta) * clamp((Math.PI - absTheta) / (params.reverseSteerFullAngleDeg * DEG), 0, 1);
+  const reverseAmount = blend <= 0
+    ? (absTheta <= front ? 0 : 1)
+    : clamp((absTheta - (front - blend)) / (2 * blend), 0, 1);
+  return {
+    throttle: noNegativeZero(magnitude * (1 - 2 * reverseAmount)),
+    steer: noNegativeZero(forwardSteer * (1 - reverseAmount) + reverseSteer * reverseAmount),
+  };
 }
 
 export function followBase(base: Point, pointer: Point, radiusPx: number, followFactor: number): Point {

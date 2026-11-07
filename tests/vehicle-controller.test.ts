@@ -57,3 +57,26 @@ test('isGrounded: no chão → verdadeiro; com vy > 0,5 → falso', () => {
   expect(isGrounded(CAR.hitbox.halfHeight, 0)).toBe(true);
   expect(isGrounded(CAR.hitbox.halfHeight, 0.51)).toBe(false);
 });
+
+test('teto de maxSpeed da IA é respeitado só via DriveCommand', () => {
+  const cap = 0.75 * CAR.maxSpeed;
+  const params = { ...CAR, maxSpeed: cap, boostMaxSpeed: cap };
+  const uncapped = simulate(2, drive({ throttle: 1 }), rest(), 1 / 60);
+  const capped = (() => {
+    let current = rest();
+    for (let i = 0; i < 120; i++) {
+      const step = stepVehicle(current, drive({ throttle: 1 }), 1 / 60, params);
+      current = {
+        ...current,
+        heading: step.heading,
+        vx: current.vx + step.impulse.x / CAR.mass,
+        vy: current.vy + step.impulse.y / CAR.mass,
+        vz: current.vz + step.impulse.z / CAR.mass,
+        grounded: isGrounded(current.y, current.vy),
+      };
+    }
+    return current;
+  })();
+  expect(Math.hypot(uncapped.vx, uncapped.vz)).toBeGreaterThan(cap);
+  expect(Math.hypot(capped.vx, capped.vz)).toBeLessThanOrEqual(cap + 1e-6);
+});

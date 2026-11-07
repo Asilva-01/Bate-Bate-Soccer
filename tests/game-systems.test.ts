@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import * as THREE from 'three';
-import { BALL, CAR } from '../src/game/config.ts';
+import { AI, BALL, CAR } from '../src/game/config.ts';
 import { createPhysics } from '../src/game/physics-runtime.ts';
-import { awardGoal, getScoringSide, opponentCars, opponentSpeed, selectAttacker } from '../src/game/match-rules.ts';
+import { aiMaxSpeed, aiPredictionSeconds, aiSpeedFactor, awardGoal, getScoringSide, opponentCars, opponentSpeed, selectAttacker } from '../src/game/match-rules.ts';
 import { createStuckMonitor } from '../src/game/stuck-monitor.ts';
 import { containPlanarBody, containSpatialBody } from '../src/game/arena-boundaries.ts';
 import { createArenaDimensions } from '../src/game/arena-dimensions.ts';
@@ -33,8 +33,27 @@ test('gol exige a bola inteira dentro da abertura e da profundidade da trave', (
 test('opponentSpeed preserva os valores por dificuldade e sobe ate o limite', () => {
   expect(opponentSpeed('easy', 1)).toBe(0.75);
   expect(opponentSpeed('medium', 1)).toBe(0.95);
-  expect(opponentSpeed('hard', 1)).toBe(1.15);
+  expect(opponentSpeed('hard', 1)).toBe(1);
   expect(opponentSpeed('easy', 10)).toBe(1.4);
+});
+
+test('aiMaxSpeed: fácil fica em 75% do jogador e difícil não passa de CAR.maxSpeed', () => {
+  expect(aiSpeedFactor('easy', 1)).toBe(0.75);
+  expect(aiSpeedFactor('medium', 1)).toBe(0.95);
+  expect(aiSpeedFactor('hard', 1)).toBe(1);
+  expect(aiMaxSpeed('easy', 1)).toBeCloseTo(0.75 * CAR.maxSpeed, 9);
+  expect(aiMaxSpeed('medium', 1)).toBeCloseTo(0.95 * CAR.maxSpeed, 9);
+  expect(aiMaxSpeed('hard', 1)).toBe(CAR.maxSpeed);
+  expect(aiMaxSpeed('easy', 10)).toBeCloseTo(0.75 * CAR.maxSpeed, 9);
+  expect(aiMaxSpeed('hard', 10)).toBe(CAR.maxSpeed);
+  expect(aiMaxSpeed('hard', 1)).toBeGreaterThan(aiMaxSpeed('medium', 1));
+  expect(aiMaxSpeed('medium', 1)).toBeGreaterThan(aiMaxSpeed('easy', 1));
+});
+
+test('aiPredictionSeconds: o fácil prevê menos que o médio, que prevê menos que o difícil', () => {
+  expect(aiPredictionSeconds('easy')).toBeLessThan(aiPredictionSeconds('medium'));
+  expect(aiPredictionSeconds('medium')).toBeLessThan(aiPredictionSeconds('hard'));
+  expect(aiPredictionSeconds('hard')).toBe(AI.predictionSeconds);
 });
 
 test('opponentCars cresce a cada duas rodadas e respeita o limite', () => {
