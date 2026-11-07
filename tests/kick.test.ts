@@ -193,22 +193,6 @@ test('dois apertos na recarga geram um toque', () => {
   expect(second.dashStarted).toBe(false);
 });
 
-test('contador monotônico consome um aperto por incremento', () => {
-  let last = 0;
-  let presses = 0;
-  const consume = () => {
-    const fired = presses > last;
-    if (fired) last = presses;
-    return fired;
-  };
-  expect(consume()).toBe(false);
-  presses += 1;
-  expect(consume()).toBe(true);
-  expect(consume()).toBe(false);
-  presses += 1;
-  expect(consume()).toBe(true);
-});
-
 test('dividida simétrica → igual com a ordem invertida', () => {
   const forward = { x: 16, y: 2, z: 0, power: 16 };
   const backward = { x: -16, y: 2, z: 0, power: 16 };

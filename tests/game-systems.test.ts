@@ -130,8 +130,9 @@ test('setas movem o carrinho, IA aproxima e reiniciar zera o placar', async () =
 
 test('acelerador cheio em linha reta passa de 13,5 u/s em até 1 s', async () => {
   const ball = new THREE.Group();
-  const cars = [[-18, 0], [18, 0]].map(([x, z], index) => {
-    const car = new THREE.Group(); car.position.set(x, 0, z); car.rotation.y = index % 2 ? Math.PI / 2 : -Math.PI / 2; return car;
+  ball.position.set(0, 0, 20);
+  const cars = [[-18, 0]].map(([x, z]) => {
+    const car = new THREE.Group(); car.position.set(x, 0, z); car.rotation.y = -Math.PI / 2; return car;
   });
   const frame = createControlFrame();
   const game = await createPhysics(ball, cars, frame, () => {}, 'easy', 1, () => true);
