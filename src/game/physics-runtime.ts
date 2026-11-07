@@ -272,6 +272,19 @@ export async function createPhysics(
       const velocity = carBodies[AI.playerIndex].linvel();
       return Math.hypot(velocity.x, velocity.z);
     },
+    playerKinematics() {
+      const body = carBodies[AI.playerIndex];
+      const velocity = body.linvel();
+      const position = body.translation();
+      return {
+        x: position.x,
+        z: position.z,
+        heading: headings[AI.playerIndex],
+        vx: velocity.x,
+        vz: velocity.z,
+        speed: Math.hypot(velocity.x, velocity.z),
+      };
+    },
     playerTurbo() {
       const pulse = turboEmptyPulse;
       turboEmptyPulse = false;

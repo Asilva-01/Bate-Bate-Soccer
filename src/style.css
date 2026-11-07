@@ -37,7 +37,8 @@ body.is-playing{overflow:hidden;overscroll-behavior:none}
 .touch-controls{display:none}
 @media(pointer:coarse){.touch-controls{display:block;position:absolute;inset:0;z-index:2;pointer-events:none}}
 .stick-zone{position:absolute;top:calc(var(--hud-height) + env(safe-area-inset-top,0px));bottom:env(safe-area-inset-bottom,0px);left:env(safe-area-inset-left,0px);width:calc(var(--stick-zone-width) - env(safe-area-inset-left,0px));pointer-events:auto;touch-action:none}
-.stick-zone::after{content:'ARRASTE PARA PILOTAR';position:absolute;left:var(--edge-margin);bottom:var(--edge-margin);color:#ffffff59;font:800 12px 'Barlow Condensed',sans-serif;letter-spacing:.14em;pointer-events:none}
+.stick-zone::after{content:'APONTAR PARA ONDE IR';position:absolute;left:var(--edge-margin);bottom:var(--edge-margin);color:#ffffff59;font:800 12px 'Barlow Condensed',sans-serif;letter-spacing:.14em;pointer-events:none}
+.stick-zone[data-mode='steer']::after{content:'ARRASTE PARA PILOTAR'}
 .stick-zone--active::after{display:none}
 .stick-base{position:absolute;left:0;top:0;width:calc(var(--stick-radius) * 2);height:calc(var(--stick-radius) * 2);border:2px solid #ffffff66;border-radius:50%;background:#0c182966;opacity:0;pointer-events:none;will-change:transform}
 .stick-zone--active .stick-base{opacity:1}
@@ -55,8 +56,12 @@ body.is-playing{overflow:hidden;overscroll-behavior:none}
 .ball-indicator[hidden]{display:none}
 .ball-indicator-arrow{position:absolute;left:-16px;top:-16px;width:32px;height:32px;display:grid;place-items:center;color:#ffd24a;font-size:28px;line-height:1;text-shadow:0 0 6px #000a,0 0 2px #000}
 .ball-indicator-label{position:absolute;left:-30px;top:18px;width:60px;text-align:center;color:#ffd24a;font:800 14px 'Barlow Condensed',sans-serif;letter-spacing:.06em;text-shadow:0 0 5px #000,0 0 2px #000}
-.pause-camera{display:flex;align-items:center;gap:6px}
-.pause-camera span{margin-right:6px;color:#c9d6c8;font-size:11px;font-weight:700;letter-spacing:.14em}
+.pause-camera,.control-mode{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.pause-camera span,.control-mode span{margin-right:6px;color:#c9d6c8;font-size:11px;font-weight:700;letter-spacing:.14em}
+.menu-card .control-mode{margin:12px 0 0}
+.menu-card .control-mode span{color:#405749}
+.menu-card .control-mode button{min-height:36px;padding:6px 12px;border:2px solid #aebaa9;background:#f5f0df;color:#293e30;font:800 14px 'Barlow Condensed',sans-serif;letter-spacing:.06em;cursor:pointer}
+.menu-card .control-mode button[aria-pressed=true]{background:#263d2e;color:#fff;border-color:#263d2e}
 .finish .pause-camera button,.finish .pause-sound{border:1px solid #647b6b;background:#1c3028;color:#e7efdf}
 .finish .pause-camera button[aria-pressed=true],.finish .pause-sound[aria-pressed=true]{border-color:#e9d9a8;background:#e9d9a8;color:#14251b}
 .finish button:disabled{opacity:.5;cursor:not-allowed}

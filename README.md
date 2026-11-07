@@ -20,7 +20,8 @@ Teclado (o jogo mostra a câmera atrás do carrinho):
 
 Celular (jogue **deitado**; em retrato a partida pausa e pede para girar o aparelho):
 
-- **Joystick flutuante** na metade esquerda da tela: ele nasce onde o polegar toca. Empurrar para a frente acelera (a intensidade é o acelerador, a distância até ~85% do raio é o máximo), para os lados faz a curva e puxar para trás dá ré.
+- **Joystick flutuante** na metade esquerda da tela: ele nasce onde o polegar toca. O padrão é o modo **Apontar**: o dedo indica para onde o carrinho deve ir na tela (para cima = para onde a câmera olha). A intensidade é o acelerador. Uma seta no chão mostra o alvo enquanto o dedo está no stick.
+- No menu inicial ou na pausa, **Controle: Apontar / Volante** troca para o modo antigo (para cima acelera, para os lados vira, para trás dá ré). A escolha fica salva no navegador.
 - **TURBO** e **TOQUE** no canto inferior direito: um polegar desliza entre os dois; na costura os dois apertam juntos. O anel do TURBO é o medidor.
 - **BOLA** no canto superior direito: liga ou desliga a câmera da bola.
 - Ao tocar em **ENTRAR EM CAMPO**, a partida abre em tela cheia (Android) ou cobre a tela toda (iPhone, que não tem a Fullscreen API). Para esconder a barra do Safari, use "Adicionar à Tela de Início".
@@ -28,9 +29,9 @@ Celular (jogue **deitado**; em retrato a partida pausa e pede para girar o apare
 
 ### Câmera, som e depuração
 
-- No menu de pausa, escolha a câmera **Perto** (padrão, atrás do carrinho) ou **Alta** (visão 3/4, mais ampla). Durante a partida, o botão **BOLA** (ou a tecla **C**) liga a câmera da bola. As duas escolhas ficam salvas no navegador.
+- No menu de pausa, escolha a câmera **Perto** (padrão, atrás do carrinho) ou **Alta** (visão 3/4, mais ampla) e o controle de toque **Apontar** (padrão) ou **Volante**. Durante a partida, o botão **BOLA** (ou a tecla **C**) liga a câmera da bola. As escolhas ficam salvas no navegador.
 - Clique em **Ligar som** para baixar e tocar as faixas gravadas (CC0) do menu e da partida, além dos efeitos de colisão, toque e gol. O áudio só começa depois da interação do jogador; os créditos das faixas estão em `public/audio/CREDITOS.md`.
-- Abra o jogo com `?debug=1` na URL para ver o painel de desempenho: FPS (média de 60 quadros e p95), draw calls, triângulos, `pixelRatio`, tempo de `physics.update`, atuações da rede de segurança, reinícios por bola presa, toques na bola, chutes ao gol, turbo, se o carro está no chão e os knobs `CAR.maxSpeed` / `SAFETY.tolerance`.
+- Abra o jogo com `?debug=1` na URL para ver o painel de desempenho: FPS (média de 60 quadros e p95), draw calls, triângulos, `pixelRatio`, tempo de `physics.update`, atuações da rede de segurança, reinícios por bola presa, toques na bola, chutes ao gol, turbo, se o carro está no chão, o modo de toque (Apontar mostra erro de heading, yaw congelado e RÉ) e os knobs `CAR.maxSpeed` / `SAFETY.tolerance`.
 
 ## Executar localmente
 
@@ -61,7 +62,7 @@ O workflow em `.github/workflows/pages.yml` gera e publica o jogo quando há um 
 - `src/game/rng.ts`: gerador com semente (mulberry32) para a IA.
 - `src/game/kick.ts`: zona de chute, força, recarga e impulso (jogador e IA).
 - `src/game/chase-camera.ts`: câmera de perseguição (presets `perto`/`alta`, FOV, assistência de bola, ball cam, `clampCameraToArena`) e indicador de bola fora da tela.
-- `src/game/touch-stick.ts`: matemática do joystick flutuante (zona morta, ré, base que segue o dedo).
+- `src/game/touch-stick.ts`: matemática do joystick flutuante (modo apontar com yaw congelado, volante, zona morta, ré, base que segue o dedo).
 - `src/game/input.ts`: `ControlFrame` analógico, teclado com rampa (incluindo Shift/L) e gamepad.
 - `src/game/render-interpolation.ts`: interpolação das poses entre passos de física.
 - `src/game/perf-monitor.ts`: média móvel de FPS e p95 para o painel `?debug=1`.

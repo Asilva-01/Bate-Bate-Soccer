@@ -3,13 +3,15 @@ import { createArena } from './arena';
 import { createBall, createCar } from './objects';
 import { createPhysics, type ControlFrame, type MatchState, type KickEvent } from './physics';
 import type { Difficulty } from './match-rules';
-import { BALL, CAMERA, CAR, DEBUG, KICK, RENDER, SAFETY, TURBO } from './config';
+import { BALL, CAMERA, CAR, DEBUG, KICK, RENDER, SAFETY, TOUCH, TURBO } from './config';
 import { createArenaDimensions } from './arena-dimensions';
 import type { HapticKind } from './haptics';
 import { isInKickZone, visualPitchRad } from './kick';
 import { createChaseRig, offscreenIndicator, stepChaseCamera, type CameraMode, type CameraPreset, type CameraStep, type CameraTarget, type IndicatorPosition, type ScreenInsets } from './chase-camera';
 import { yawFromQuaternion } from './render-interpolation';
 import { createPerfMonitor } from './perf-monitor';
+import { wrapAngle } from './math';
+import { applyTouchStickLive, carPressedAgainstWall, createTouchStickLive, type TouchStickLive } from './touch-stick';
 
 export type BallIndicator = IndicatorPosition & { distance: number };
 export type GameControls = {
@@ -22,6 +24,7 @@ export type GameControls = {
   haptic: (kind: HapticKind) => void;
   indicator: (state: BallIndicator | null) => void;
   onTurboFrame: (info: { meter: number; active: boolean }) => void;
+  touchStick?: TouchStickLive;
 };
 
 function readSafeInsets(probe: HTMLElement): ScreenInsets {
@@ -100,6 +103,19 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
   fakeShadows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   fakeShadows.frustumCulled = false;
   scene.add(fakeShadows);
+  const aimGeometry = new THREE.ConeGeometry(TOUCH.stick.aimMarkerRadius, TOUCH.stick.aimMarkerLength, 3);
+  aimGeometry.rotateX(-Math.PI / 2);
+  const aimMarker = new THREE.Mesh(
+    aimGeometry,
+    new THREE.MeshBasicMaterial({
+      color: TOUCH.stick.aimMarkerColor,
+      transparent: true,
+      opacity: TOUCH.stick.aimMarkerOpacity,
+      depthWrite: false,
+    }),
+  );
+  aimMarker.visible = false;
+  scene.add(aimMarker);
   const placeShadow = (index: number, x: number, z: number, radius: number, visible: boolean) => {
     shadowDummy.position.set(x, 0.04, z);
     shadowDummy.scale.set(visible ? radius : 0, visible ? radius : 0, 1);
@@ -153,6 +169,60 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
   };
   updateSubject();
   let cameraStep: CameraStep = createChaseRig(cameraSubject, camera.aspect, dims, controls.cameraPreset);
+  const touchLive = controls.touchStick ?? createTouchStickLive();
+  controls.touchStick = touchLive;
+  const applyAimDrive = (dt: number) => {
+    const live = touchLive;
+    if (live.mode !== 'aim') {
+      live.targetHeading = null;
+      return;
+    }
+    const kin = physics.playerKinematics();
+    const step = applyTouchStickLive(live, {
+      carHeading: kin.heading,
+      cameraYaw: cameraStep.rig.yaw,
+      speed: kin.speed,
+      wallPressed: carPressedAgainstWall(
+        kin.x,
+        kin.z,
+        kin.heading,
+        dims,
+        TOUCH.stick.aimWallPressClearance,
+        TOUCH.stick.aimWallFacingDot,
+      ),
+      dt,
+    });
+    input.throttle = step.throttle;
+    input.steer = step.steer;
+  };
+  const updateAimMarker = () => {
+    const live = touchLive;
+    if (!controls.running || live.mode !== 'aim' || live.targetHeading === null) {
+      aimMarker.visible = false;
+      return;
+    }
+    const heading = live.targetHeading;
+    const distance = TOUCH.stick.aimMarkerDistance;
+    aimMarker.position.set(
+      playerCar.position.x - Math.sin(heading) * distance,
+      TOUCH.stick.aimMarkerY,
+      playerCar.position.z - Math.cos(heading) * distance,
+    );
+    aimMarker.rotation.y = heading;
+    aimMarker.visible = true;
+  };
+  const touchDebugLine = () => {
+    const live = touchLive;
+    if (live.mode !== 'aim') return `toque ${live.mode}`;
+    const bits = [`toque ${live.mode}`];
+    if (live.targetHeading !== null) {
+      const errorDeg = wrapAngle(live.targetHeading - cameraSubject.carHeading) * (180 / Math.PI);
+      bits.push(`err ${errorDeg.toFixed(0)}°`);
+    }
+    if (live.aim.referenceYaw !== null) bits.push(`ref ${(live.aim.referenceYaw * 180 / Math.PI).toFixed(0)}°`);
+    if (live.aim.reversing) bits.push('RÉ');
+    return bits.join(' · ');
+  };
   const projected = new THREE.Vector3();
   const insetPx = CAMERA.indicatorInsetPx;
   const debugEnabled = new URLSearchParams(window.location.search).get('debug') === '1';
@@ -176,6 +246,7 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
       `turbo ${lastTurbo.meter.toFixed(0)} ${lastTurbo.active ? 'ON' : 'off'} · chão ${lastTurbo.grounded ? 'sim' : 'não'}`,
       `CAR.maxSpeed ${CAR.maxSpeed} · boostMax ${CAR.boostMaxSpeed} · SAFETY.tol ${SAFETY.tolerance}`,
       `TURBO start ${TURBO.start} drain ${TURBO.drainPerSecond}/s regen ${TURBO.regenPerSecond}/s min ${TURBO.minToStart}`,
+      touchDebugLine(),
     ].join('\n');
   };
   const animate = (now: number) => {
@@ -186,6 +257,7 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
     if (frameTime - lastFrameTime < 1000) frameMonitor.push(frameTime - lastFrameTime);
     lastFrameTime = frameTime;
     if (controls.running) {
+      applyAimDrive(delta);
       physics.update(delta, hit, kick);
       physicsMonitor.push(performance.now() - frameTime);
       const dashLeft = physics.dashRemaining();
@@ -206,6 +278,7 @@ export async function createScene(container: HTMLElement, input: ControlFrame, c
       if (goalCelebrationAge >= 1) goalCelebration.visible = false;
     }
     updateSubject();
+    updateAimMarker();
     cameraStep = stepChaseCamera(cameraStep.rig, cameraSubject, delta, camera.aspect, dims, controls.cameraPreset, { reducedMotion: reducedMotion.matches });
     const { rig, lookAt } = cameraStep;
     camera.position.set(rig.x, rig.y, rig.z);
