@@ -1,12 +1,12 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { AI, CAR } from './config';
-import { clamp, setVec3, type Quat, type Vec3 } from './math';
+import { clamp, setVec3, wrapAngle, type Quat, type Vec3 } from './math';
 import { selectAttacker, type Difficulty } from './match-rules';
 import type { ArenaDimensions } from './arena-dimensions';
 import type { DriveCommand } from './controls';
 import type { Rng } from './rng';
 
-export type AiOpponentState = { blockedTime: number; recoveryTime: number; attacking: boolean };
+export type AiOpponentState = { blockedTime: number; recoveryTime: number; attacking: boolean; recoverySteer: number };
 
 type CarSlot = { body: RAPIER.RigidBody; carIndex: number };
 
@@ -23,7 +23,7 @@ export type AiScratch = {
 };
 
 export function createAiOpponents(count: number): AiOpponentState[] {
-  return Array.from({ length: count }, () => ({ blockedTime: 0, recoveryTime: 0, attacking: false }));
+  return Array.from({ length: count }, () => ({ blockedTime: 0, recoveryTime: 0, attacking: false, recoverySteer: 0 }));
 }
 
 export function createAiScratch(count: number): AiScratch {
@@ -45,6 +45,7 @@ export function resetAiOpponents(opponents: AiOpponentState[]) {
     opponent.blockedTime = 0;
     opponent.recoveryTime = 0;
     opponent.attacking = false;
+    opponent.recoverySteer = 0;
   });
 }
 
@@ -66,7 +67,7 @@ export function applyAiControl(
   ballBody: RAPIER.RigidBody,
   dims: ArenaDimensions,
   enabled: (index: number) => boolean,
-  aiHeadings: number[],
+  aiHeadings: readonly number[],
   opponents: AiOpponentState[],
   isActiveAttacker: boolean[],
   commands: DriveCommand[],
@@ -132,7 +133,7 @@ export function applyAiControl(
     const dx = (opponentState.attacking ? target.x - directionX * AI.behindBallDistance : approachX) - position.x;
     const dz = (opponentState.attacking ? target.z - directionZ * AI.behindBallDistance : approachZ) - position.z;
     const desired = Math.atan2(-dx, -dz);
-    const difference = Math.atan2(Math.sin(desired - aiHeadings[index]), Math.cos(desired - aiHeadings[index]));
+    const difference = wrapAngle(desired - aiHeadings[index]);
     const velocity = opponent.linvel();
     const tryingToMove = Math.abs(difference) < AI.blockedHeadingTolerance;
     opponentState.blockedTime = tryingToMove && Math.hypot(velocity.x, velocity.z) < AI.blockedSpeed ? opponentState.blockedTime + dt : 0;
@@ -140,8 +141,7 @@ export function applyAiControl(
       opponentState.recoveryTime = AI.recoverySeconds;
       opponentState.blockedTime = 0;
       opponentState.attacking = false;
-      const recoveryAngle = aiHeadings[index] + (rng() > 0.5 ? 1 : -1) * (AI.recoveryAngleRange / 2 + rng() * AI.recoveryAngleRange / 2);
-      aiHeadings[index] = recoveryAngle;
+      opponentState.recoverySteer = rng() > 0.5 ? 1 : -1;
     }
     const recovering = opponentState.recoveryTime > 0;
     opponentState.recoveryTime = Math.max(0, opponentState.recoveryTime - dt);
@@ -149,7 +149,10 @@ export function applyAiControl(
     const throttle = recovering
       ? -0.55 * steeringFactor
       : (isAttacker ? AI.difficultyAggression[difficulty] : AI.defenderSpeedFactor) * steeringFactor;
-    const steer = recovering ? 0 : clamp(difference / Math.max(1e-4, CAR.steeringRate * dt), -1, 1);
+    // steer positivo = direita = heading diminui (`headingDelta`); a IA precisa do sinal invertido.
+    const steer = recovering
+      ? opponentState.recoverySteer
+      : -clamp(difference / Math.max(1e-4, CAR.steeringRate * dt), -1, 1);
     commands[index] = { throttle: clamp(throttle, -1, 1), steer, boost: false, kick: false };
   }
   isActiveAttacker[AI.playerIndex] = true;

@@ -51,6 +51,7 @@ export async function createPhysics(
   world.integrationParameters.numSolverIterations = SIMULATION.solverIterations;
   createStaticArena(world, dims);
   const { body: ballBody, collider: ballCollider } = addBallToWorld(world);
+  ballBody.setTranslation(setVec3(translationScratch, ball.position.x, BALL.radius + BALL.bodyOffset, ball.position.z), true);
   const events = new RAPIER.EventQueue(true);
   const carColliderIndices = new Map<number, number>();
   const carBodies = cars.map((car, index) => {
