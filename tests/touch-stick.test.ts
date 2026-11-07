@@ -23,15 +23,25 @@ test('intensidade do stick vira acelerador de forma analógica', () => {
   expect(drive(0, 0.85).throttle).toBe(1);
 });
 
-test('steer varia no máximo 0,02 por grau fora das fronteiras de zona', () => {
+test('steer varia no máximo 0,03 por grau', () => {
   let previous = stickToDrive(stickAt(-179.5));
   for (let angle = -178.5; angle <= 180; angle += 1) {
-    if (Math.abs(Math.abs(angle) - 110) < 1) {
-      previous = stickToDrive(stickAt(angle));
-      continue;
-    }
     const current = stickToDrive(stickAt(angle));
-    expect(Math.abs(current.steer - previous.steer)).toBeLessThanOrEqual(0.02);
+    expect(Math.abs(current.steer - previous.steer)).toBeLessThanOrEqual(0.03);
+    previous = current;
+  }
+});
+
+test('a faixa de blend evita o tranco de throttle na fronteira frente/ré', () => {
+  const atSide = stickToDrive(stickAt(90));
+  const atBoundary = stickToDrive(stickAt(110));
+  expect(atSide.throttle).toBeGreaterThan(0.9);
+  expect(atSide.steer).toBeCloseTo(1, 6);
+  expect(Math.abs(atBoundary.throttle)).toBeLessThan(0.1);
+  let previous = stickToDrive(stickAt(90));
+  for (let angle = 91; angle <= 130; angle += 1) {
+    const current = stickToDrive(stickAt(angle));
+    expect(Math.abs(current.throttle - previous.throttle)).toBeLessThanOrEqual(0.08);
     previous = current;
   }
 });

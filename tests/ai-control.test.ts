@@ -24,10 +24,13 @@ function runAi(args: {
   heading: number;
   ballX: number;
   ballZ: number;
+  ballVx?: number;
+  ballVz?: number;
   vx?: number;
   vz?: number;
   playerX?: number;
   playerZ?: number;
+  difficulty?: 'easy' | 'medium' | 'hard';
   opponents?: ReturnType<typeof createAiOpponents>;
   rng?: () => number;
 }) {
@@ -42,22 +45,23 @@ function runAi(args: {
   ];
   const isActiveAttacker = [false, false];
   const opponents = args.opponents ?? createAiOpponents(2);
+  const scratch = createAiScratch(2);
   applyAiControl(
     bodies,
-    fakeBody(args.ballX, args.ballZ),
+    fakeBody(args.ballX, args.ballZ, args.ballVx ?? 0, args.ballVz ?? 0),
     dims,
     (index) => index === 0 || index === 1,
     headings,
     opponents,
     isActiveAttacker,
     commands,
-    'hard',
+    args.difficulty ?? 'hard',
     1,
     STEP,
     args.rng ?? mulberry32(11),
-    createAiScratch(2),
+    scratch,
   );
-  return { command: commands[1], headings, opponents, isActiveAttacker };
+  return { command: commands[1], headings, opponents, isActiveAttacker, predicted: scratch.predictedBall };
 }
 
 test('desired = atan2(-dx,-dz) aponta a frente (-sin h, -cos h) para o alvo', () => {
@@ -109,4 +113,21 @@ test('recuperação usa ré + steer e não teleporta o heading', () => {
   expect(Math.abs(result.command.steer)).toBe(1);
   const reverseDelta = headingDelta(result.command.steer, -4, STEP);
   expect(Math.sign(reverseDelta)).toBe(Math.sign(result.command.steer));
+});
+
+test('predição no fácil fica atrás da do difícil quando a bola se move', () => {
+  const args = { carX: 18, carZ: 0, heading: Math.PI / 2, ballX: 0, ballZ: 0, ballVx: -12, ballVz: 0 };
+  const easy = runAi({ ...args, difficulty: 'easy' });
+  const medium = runAi({ ...args, difficulty: 'medium' });
+  const hard = runAi({ ...args, difficulty: 'hard' });
+  expect(easy.predicted.x).toBeGreaterThan(hard.predicted.x);
+  expect(medium.predicted.x).toBeGreaterThan(hard.predicted.x);
+  expect(easy.predicted.x).toBeGreaterThan(medium.predicted.x);
+});
+
+test('no fácil a mira tem ruído determinístico com a semente', () => {
+  const a = runAi({ carX: 18, carZ: 0, heading: Math.PI / 2, ballX: 0, ballZ: 0, difficulty: 'easy', rng: mulberry32(4) });
+  const b = runAi({ carX: 18, carZ: 0, heading: Math.PI / 2, ballX: 0, ballZ: 0, difficulty: 'easy', rng: mulberry32(9) });
+  expect(Math.hypot(a.opponents[1].aimErrorX, a.opponents[1].aimErrorZ)).toBeGreaterThan(0.2);
+  expect(a.opponents[1].aimErrorX).not.toBeCloseTo(b.opponents[1].aimErrorX, 6);
 });

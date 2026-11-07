@@ -1,5 +1,5 @@
 ﻿import RAPIER from '@dimforge/rapier3d-compat';
-import { opponentCars, type Difficulty, type ScoreState } from './match-rules';
+import { aiMaxSpeed, opponentCars, type Difficulty, type ScoreState } from './match-rules';
 import { createStuckMonitor } from './stuck-monitor';
 import { AI, BALL, CAR, MATCH, SIMULATION } from './config';
 import { createKeyboardInput, type ControlFrame } from './input';
@@ -154,6 +154,8 @@ export async function createPhysics(
       setVec3(carVelocitiesBefore[index], velocity.x, velocity.y, velocity.z);
     }
   };
+  const aiMax = aiMaxSpeed(difficulty, round);
+  const aiDriveParams = { ...CAR, maxSpeed: aiMax, boostMaxSpeed: aiMax, reverseMaxSpeed: Math.min(CAR.reverseMaxSpeed, aiMax) };
   const applyDrive = (index: number, command: DriveCommand) => {
     const body = carBodies[index];
     const velocity = body.linvel();
@@ -161,6 +163,7 @@ export async function createPhysics(
     const turbo = stepTurbo(turboStates[index], command.boost, STEP);
     turboStates[index] = turbo.state;
     const grounded = isGrounded(position.y, velocity.y);
+    const driveParams = humanSlots.has(index) ? CAR : aiDriveParams;
     const step = stepVehicle({
       vx: velocity.x,
       vy: velocity.y,
@@ -171,7 +174,7 @@ export async function createPhysics(
       boost: turbo.state.meter,
       dashTime: 0,
       kickCooldown: 0,
-    }, { ...command, boost: turbo.active }, STEP);
+    }, { ...command, boost: humanSlots.has(index) && turbo.active }, STEP, driveParams);
     headings[index] = step.heading;
     body.setRotation(yawQuaternion(step.heading, rotationScratch), true);
     setVec3(impulseScratch, step.impulse.x, step.impulse.y, step.impulse.z);
@@ -261,6 +264,10 @@ export async function createPhysics(
       sync(accumulator / STEP);
     },
     stats,
+    carSpeed(index: number) {
+      const velocity = carBodies[index].linvel();
+      return Math.hypot(velocity.x, velocity.z);
+    },
     playerSpeed() {
       const velocity = carBodies[AI.playerIndex].linvel();
       return Math.hypot(velocity.x, velocity.z);

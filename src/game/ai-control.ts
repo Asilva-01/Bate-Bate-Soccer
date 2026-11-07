@@ -1,12 +1,20 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { AI, CAR } from './config';
 import { clamp, setVec3, wrapAngle, type Quat, type Vec3 } from './math';
-import { selectAttacker, type Difficulty } from './match-rules';
+import { aiPredictionSeconds, selectAttacker, type Difficulty } from './match-rules';
 import type { ArenaDimensions } from './arena-dimensions';
 import type { DriveCommand } from './controls';
 import type { Rng } from './rng';
 
-export type AiOpponentState = { blockedTime: number; recoveryTime: number; attacking: boolean; recoverySteer: number };
+export type AiOpponentState = {
+  blockedTime: number;
+  recoveryTime: number;
+  attacking: boolean;
+  recoverySteer: number;
+  aimErrorX: number;
+  aimErrorZ: number;
+  aimResampleIn: number;
+};
 
 type CarSlot = { body: RAPIER.RigidBody; carIndex: number };
 
@@ -23,7 +31,15 @@ export type AiScratch = {
 };
 
 export function createAiOpponents(count: number): AiOpponentState[] {
-  return Array.from({ length: count }, () => ({ blockedTime: 0, recoveryTime: 0, attacking: false, recoverySteer: 0 }));
+  return Array.from({ length: count }, () => ({
+    blockedTime: 0,
+    recoveryTime: 0,
+    attacking: false,
+    recoverySteer: 0,
+    aimErrorX: 0,
+    aimErrorZ: 0,
+    aimResampleIn: 0,
+  }));
 }
 
 export function createAiScratch(count: number): AiScratch {
@@ -46,6 +62,9 @@ export function resetAiOpponents(opponents: AiOpponentState[]) {
     opponent.recoveryTime = 0;
     opponent.attacking = false;
     opponent.recoverySteer = 0;
+    opponent.aimErrorX = 0;
+    opponent.aimErrorZ = 0;
+    opponent.aimResampleIn = 0;
   });
 }
 
@@ -79,8 +98,9 @@ export function applyAiControl(
 ) {
   const target = ballBody.translation();
   const ballVelocity = ballBody.linvel();
-  const predictedX = clamp(target.x + ballVelocity.x * AI.predictionSeconds, -dims.goalLineX, dims.goalLineX);
-  const predictedZ = clamp(target.z + ballVelocity.z * AI.predictionSeconds, -dims.sideWallZ + AI.wallClearance, dims.sideWallZ - AI.wallClearance);
+  const horizon = aiPredictionSeconds(difficulty);
+  const predictedX = clamp(target.x + ballVelocity.x * horizon, -dims.goalLineX, dims.goalLineX);
+  const predictedZ = clamp(target.z + ballVelocity.z * horizon, -dims.sideWallZ + AI.wallClearance, dims.sideWallZ - AI.wallClearance);
   setVec3(scratch.predictedBall, predictedX, target.y, predictedZ);
 
   const redTeam = scratch.redTeam;
@@ -101,6 +121,13 @@ export function applyAiControl(
     if (!enabled(index)) continue;
     const opponent = carBodies[index];
     const opponentState = opponents[index];
+    opponentState.aimResampleIn -= dt;
+    if (opponentState.aimResampleIn <= 0) {
+      const noise = AI.targetNoise[difficulty];
+      opponentState.aimErrorX = (rng() * 2 - 1) * noise;
+      opponentState.aimErrorZ = (rng() * 2 - 1) * noise;
+      opponentState.aimResampleIn = AI.difficultyReactionTime[difficulty];
+    }
     const position = opponent.translation();
     const pushX = index === AI.redAllyIndex ? 1 : -1;
     const playerPosition = carBodies[0].translation();
@@ -122,8 +149,16 @@ export function applyAiControl(
     const ballThreatX = (predictedX - defendX) * (index === AI.redAllyIndex ? -1 : 1);
     const defenseDynamic = ballThreatX > 0 ? clamp(ballThreatX / (dims.goalLineX * 2), 0, AI.defenseDynamicFactor) : 0;
     const defendTargetX = defendX + (predictedX - defendX) * defenseDynamic;
-    const approachX = clamp(isAttacker ? predictedX - directionX * AI.attackRange - directionZ * offset : defendTargetX, -dims.goalLineX + AI.goalClampMargin, dims.goalLineX - AI.goalClampMargin);
-    const approachZ = clamp(isAttacker ? predictedZ - directionZ * AI.attackRange + directionX * offset : predictedZ * AI.defenderPositionFollowFactor + offset, -dims.sideWallZ + AI.wallClearance, dims.sideWallZ - AI.wallClearance);
+    const approachX = clamp(
+      (isAttacker ? predictedX - directionX * AI.attackRange - directionZ * offset : defendTargetX) + opponentState.aimErrorX,
+      -dims.goalLineX + AI.goalClampMargin,
+      dims.goalLineX - AI.goalClampMargin,
+    );
+    const approachZ = clamp(
+      (isAttacker ? predictedZ - directionZ * AI.attackRange + directionX * offset : predictedZ * AI.defenderPositionFollowFactor + offset) + opponentState.aimErrorZ,
+      -dims.sideWallZ + AI.wallClearance,
+      dims.sideWallZ - AI.wallClearance,
+    );
     const approachDistance = Math.hypot(approachX - position.x, approachZ - position.z);
     const ballDistance = Math.hypot(predictedX - position.x, predictedZ - position.z);
     if (isAttacker && approachDistance < AI.attackerApproachDistance) opponentState.attacking = true;

@@ -3,11 +3,11 @@ import * as THREE from 'three';
 import { BALL, CAR, SIMULATION } from '../src/game/config.ts';
 import { createArenaDimensions } from '../src/game/arena-dimensions.ts';
 import { createControlFrame } from '../src/game/input.ts';
+import type { Difficulty } from '../src/game/match-rules.ts';
 import { createPhysics } from '../src/game/physics-runtime.ts';
 
 const STEP = SIMULATION.fixedStep;
-const MAX_SECONDS = 5;
-const MAX_STUCK_SECONDS = 2.5;
+const MAX_STUCK_SECONDS = { easy: 5, medium: 2.5, hard: 2.5 } as const;
 const TOUCH_DISTANCE = CAR.hitbox.halfLength + BALL.radius + 1.2;
 const dims = createArenaDimensions();
 const handlers = new Map<string, (event: unknown) => void>();
@@ -51,14 +51,22 @@ const headings = [
   { name: 'de costas', heading: -Math.PI / 2 },
 ] as const;
 
-const cases = ballPositions.flatMap((ball, ballIndex) => headings.map((facing, headingIndex) => ({
-  name: `${ball.name}, ${facing.name}`,
+const difficulties: { name: Difficulty; seconds: number }[] = [
+  { name: 'easy', seconds: 12 },
+  { name: 'medium', seconds: 6 },
+  { name: 'hard', seconds: 5 },
+];
+
+const cases = difficulties.flatMap((diff, diffIndex) => ballPositions.flatMap((ball, ballIndex) => headings.map((facing, headingIndex) => ({
+  name: `${diff.name}: ${ball.name}, ${facing.name}`,
+  difficulty: diff.name,
+  seconds: diff.seconds,
   ball,
   heading: facing.heading,
-  seed: 17 + ballIndex * 10 + headingIndex,
-})));
+  seed: 17 + diffIndex * 100 + ballIndex * 10 + headingIndex,
+}))));
 
-test.each(cases)('IA azul toca a bola e não cola na parede ($name)', async ({ ball, heading, seed }) => {
+test.each(cases)('IA azul toca a bola e não cola na parede ($name)', async ({ difficulty, seconds, ball, heading, seed }) => {
   const cars = carsAt(heading);
   const ballMesh = new THREE.Group();
   ballMesh.position.set(ball.x, 0, ball.z);
@@ -69,7 +77,7 @@ test.each(cases)('IA azul toca a bola e não cola na parede ($name)', async ({ b
     cars,
     frame,
     (state) => { if (state.red > 0 || state.blue > 0) scored = true; },
-    'hard',
+    difficulty,
     1,
     () => true,
     { humanSlots: [0], seed },
@@ -78,7 +86,7 @@ test.each(cases)('IA azul toca a bola e não cola na parede ($name)', async ({ b
   let touched = false;
   let stuckSeconds = 0;
   let maxStuck = 0;
-  const steps = Math.round(MAX_SECONDS / STEP);
+  const steps = Math.round(seconds / STEP);
   for (let i = 0; i < steps; i++) {
     game.update(STEP, () => {});
     if (scored) touched = true;
@@ -88,9 +96,9 @@ test.each(cases)('IA azul toca a bola e não cola na parede ($name)', async ({ b
     const glued = nearWall(ai.x, ai.z) && distance > TOUCH_DISTANCE;
     stuckSeconds = glued ? stuckSeconds + STEP : 0;
     maxStuck = Math.max(maxStuck, stuckSeconds);
-    if (touched && maxStuck > MAX_STUCK_SECONDS) break;
+    if (touched && maxStuck > MAX_STUCK_SECONDS[difficulty]) break;
   }
   game.dispose();
   expect(touched).toBe(true);
-  expect(maxStuck).toBeLessThanOrEqual(MAX_STUCK_SECONDS);
-}, 20_000);
+  expect(maxStuck).toBeLessThanOrEqual(MAX_STUCK_SECONDS[difficulty]);
+}, 25_000);
